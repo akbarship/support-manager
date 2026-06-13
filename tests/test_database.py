@@ -33,16 +33,7 @@ class StorageTest(unittest.TestCase):
         category, support, _, _ = self.seed()
         self.assertEqual(self.storage.list_support_teachers(category.id)[0].id, support.id)
 
-    def test_contact_must_be_preapproved_and_stores_language(self):
-        self.assertIsNone(self.storage.link_telegram_user(
-            "+998903333333",
-            123,
-            456,
-            {"first_name": "Madina", "last_name": "Aliyeva"},
-            "ru",
-        ))
-
-        self.storage.upsert_allowed_user("+998903333333", "student", "Madina", "Aliyeva")
+    def test_unknown_contact_becomes_student_and_stores_language(self):
         user = self.storage.link_telegram_user(
             "+998903333333",
             123,
@@ -57,6 +48,21 @@ class StorageTest(unittest.TestCase):
         self.assertEqual(user.name, "Madina")
         self.assertEqual(user.language, "ru")
         self.assertEqual(self.storage.get_user_by_telegram_id(123).phone, user.phone)
+
+    def test_support_teacher_contact_gets_support_role(self):
+        _, support, _, _ = self.seed()
+        user = self.storage.link_telegram_user(
+            support.phone,
+            789,
+            987,
+            {"first_name": "Ali", "last_name": "Valiyev", "username": "ali_support"},
+            "uz",
+        )
+
+        self.assertIsNotNone(user)
+        self.assertEqual(user.role, "support_teacher")
+        self.assertEqual(user.phone, support.phone)
+        self.assertEqual(user.username, "ali_support")
 
     def test_books_only_free_slots(self):
         category, support, student, _ = self.seed()

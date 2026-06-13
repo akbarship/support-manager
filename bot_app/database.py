@@ -305,8 +305,16 @@ class Storage:
     def link_telegram_user(self, phone: str, telegram_id: int, chat_id: int, telegram_data: dict[str, Any], language: str = "uz") -> User | None:
         clean_phone = normalize_phone(phone)
         user = self.get_user_by_phone(clean_phone)
+        support = self.find_support_teacher_by_phone(clean_phone)
         if not user:
-            return None
+            user = self.upsert_allowed_user(
+                clean_phone,
+                "support_teacher" if support else "student",
+                support.name if support else telegram_data.get("first_name") or "",
+                support.surname if support else telegram_data.get("last_name") or "",
+            )
+        elif support and user.role != "support_teacher":
+            user = self.upsert_allowed_user(clean_phone, "support_teacher", support.name, support.surname)
         self.db.execute(
             "UPDATE users SET telegram_id = ?, chat_id = ?, language = ?, telegram_json = ?, updated_at = ? WHERE phone = ?",
             (telegram_id, chat_id, language, write_json(telegram_data), now(), user.phone),
