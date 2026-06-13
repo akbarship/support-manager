@@ -40,6 +40,12 @@ build/Release
 # Dependency directories
 node_modules/
 jspm_packages/
+.python_deps/
+.venv/
+__pycache__/
+**/__pycache__/
+*.pyc
+data/
 
 # Snowpack dependency directory (https://snowpack.dev/)
 web_modules/
