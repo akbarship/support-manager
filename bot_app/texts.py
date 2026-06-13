@@ -9,7 +9,7 @@ TEXT = {
     "uz": {
         "choose_language": "Tilni tanlang:",
         "main_menu": "Nima qilamiz?",
-        "share_contact": "Davom etish uchun telefon raqamingizni yuboring.",
+        "share_contact": "Davom etish uchun telefon raqamingizni yuboring yoki raqamni yozing.",
         "share_contact_button": "Telefon raqamni yuborish",
         "not_allowed": "Bu telefon raqam ro‘yxatda yo‘q. Iltimos, administratorga murojaat qiling.",
         "onboarded": "Xush kelibsiz.",
@@ -24,7 +24,7 @@ TEXT = {
     "ru": {
         "choose_language": "Выберите язык:",
         "main_menu": "Что делаем?",
-        "share_contact": "Чтобы продолжить, отправьте номер телефона.",
+        "share_contact": "Чтобы продолжить, отправьте контакт или напишите номер телефона.",
         "share_contact_button": "Отправить номер телефона",
         "not_allowed": "Этот номер телефона не добавлен в список. Обратитесь к администратору.",
         "onboarded": "Добро пожаловать.",
