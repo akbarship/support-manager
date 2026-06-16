@@ -195,6 +195,7 @@ class Storage:
             """
         )
         self._ensure_column("users", "language", "TEXT NOT NULL DEFAULT 'uz'")
+        self.db.execute("UPDATE users SET role = 'student', updated_at = ? WHERE role = 'teacher'", (now(),))
         self.db.commit()
 
     def _ensure_column(self, table: str, column: str, definition: str) -> None:
@@ -275,6 +276,8 @@ class Storage:
         return self.get_user_by_phone(user.phone)
 
     def upsert_allowed_user(self, phone: str, role: str, name: str = "", surname: str = "") -> User:
+        if role == "teacher":
+            role = "student"
         clean_phone = normalize_phone(phone)
         existing = self.get_user_by_phone(clean_phone)
         stamp = now()
@@ -344,6 +347,94 @@ class Storage:
         else:
             rows = self.db.execute("SELECT * FROM users ORDER BY created_at DESC").fetchall()
         return [user for row in rows if (user := self.refresh_ban(self._user(row)))]
+
+    def list_students(self) -> list[User]:
+        rows = self.db.execute(
+            """
+            SELECT users.*
+            FROM users
+            LEFT JOIN admins ON admins.phone = users.phone
+            WHERE users.role = 'student' AND admins.phone IS NULL
+            ORDER BY users.created_at DESC
+            """
+        ).fetchall()
+        return [user for row in rows if (user := self.refresh_ban(self._user(row)))]
+
+    def student_stats(self, phone: str) -> dict[str, Any] | None:
+        user = self.get_user_by_phone(phone)
+        if not user or user.role != "student":
+            return None
+
+        def count(status: str | None = None) -> int:
+            if status:
+                return int(
+                    self.db.execute(
+                        "SELECT COUNT(*) FROM bookings WHERE user_phone = ? AND status = ?",
+                        (user.phone, status),
+                    ).fetchone()[0]
+                )
+            return int(
+                self.db.execute(
+                    "SELECT COUNT(*) FROM bookings WHERE user_phone = ?",
+                    (user.phone,),
+                ).fetchone()[0]
+            )
+
+        upcoming_rows = self.db.execute(
+            """
+            SELECT *
+            FROM bookings
+            WHERE user_phone = ? AND status = 'booked'
+            ORDER BY lesson_date ASC, start_hour ASC
+            LIMIT 3
+            """,
+            (user.phone,),
+        ).fetchall()
+        return {
+            "user": user,
+            "total": count(),
+            "booked": count("booked"),
+            "completed": count("completed"),
+            "cancelled": count("cancelled"),
+            "no_show": count("no_show"),
+            "upcoming": [booking for row in upcoming_rows if (booking := self._booking(row))],
+        }
+
+    def ban_student(self, phone: str, days: int) -> User | None:
+        user = self.get_user_by_phone(phone)
+        if not user or user.role != "student":
+            return None
+        self.db.execute(
+            "UPDATE users SET banned_until = ?, updated_at = ? WHERE phone = ?",
+            (plus_days(days), now(), user.phone),
+        )
+        self.db.commit()
+        return self.get_user_by_phone(user.phone)
+
+    def unban_student(self, phone: str) -> User | None:
+        user = self.get_user_by_phone(phone)
+        if not user or user.role != "student":
+            return None
+        self.db.execute(
+            "UPDATE users SET no_show_count = 0, banned_until = NULL, updated_at = ? WHERE phone = ?",
+            (now(), user.phone),
+        )
+        self.db.commit()
+        return self.get_user_by_phone(user.phone)
+
+    def delete_student(self, phone: str) -> bool:
+        user = self.get_user_by_phone(phone)
+        if not user or user.role != "student":
+            return False
+        active_bookings = self.db.execute(
+            "SELECT COUNT(*) FROM bookings WHERE user_phone = ? AND status = 'booked'",
+            (user.phone,),
+        ).fetchone()[0]
+        if active_bookings:
+            return False
+        cursor = self.db.execute("DELETE FROM users WHERE phone = ?", (user.phone,))
+        self.db.commit()
+        return cursor.rowcount > 0
 
     def add_admin(self, phone: str, name: str = "", surname: str = "") -> User:
         clean_phone = normalize_phone(phone)
@@ -492,6 +583,108 @@ class Storage:
         if category_id is None:
             return supports
         return [support for support in supports if int(category_id) in support.categories]
+
+    def update_support_teacher(self, support_id: int, **patch: Any) -> SupportTeacher | None:
+        support = self.get_support_teacher(support_id)
+        if not support:
+            return None
+
+        allowed = {"phone", "name", "surname", "ielts", "cefr", "sat", "categories"}
+        updates: dict[str, Any] = {key: value for key, value in patch.items() if key in allowed}
+        if not updates:
+            return support
+
+        old_phone = support.phone
+        if "phone" in updates:
+            updates["phone"] = normalize_phone(updates["phone"])
+        if "categories" in updates:
+            updates["categories_json"] = write_json([int(category_id) for category_id in updates.pop("categories")])
+
+        columns = ", ".join(f"{column} = ?" for column in updates)
+        params = list(updates.values()) + [support.id]
+        self.db.execute(f"UPDATE support_teachers SET {columns} WHERE id = ?", params)
+
+        refreshed = self.get_support_teacher(support.id)
+        if refreshed:
+            if refreshed.phone != old_phone:
+                self.upsert_allowed_user(refreshed.phone, "support_teacher", refreshed.name, refreshed.surname)
+                old_user = self.get_user_by_phone(old_phone)
+                if old_user and old_user.role == "support_teacher":
+                    self.db.execute("UPDATE users SET role = 'student', updated_at = ? WHERE phone = ?", (now(), old_phone))
+            else:
+                self.upsert_allowed_user(refreshed.phone, "support_teacher", refreshed.name, refreshed.surname)
+        self.db.commit()
+        return self.get_support_teacher(support.id)
+
+    def delete_support_teacher(self, support_id: int) -> bool:
+        support = self.get_support_teacher(support_id)
+        if not support:
+            return False
+        active_bookings = self.db.execute(
+            "SELECT COUNT(*) FROM bookings WHERE support_teacher_id = ? AND status = 'booked'",
+            (support.id,),
+        ).fetchone()[0]
+        if active_bookings:
+            return False
+        self.db.execute("DELETE FROM support_teachers WHERE id = ?", (support.id,))
+        user = self.get_user_by_phone(support.phone)
+        if user and user.role == "support_teacher":
+            self.db.execute("UPDATE users SET role = 'student', updated_at = ? WHERE phone = ?", (now(), user.phone))
+        self.db.commit()
+        return True
+
+    def support_teacher_stats(self, support_id: int) -> dict[str, Any] | None:
+        support = self.get_support_teacher(support_id)
+        if not support:
+            return None
+
+        def count(status: str | None = None) -> int:
+            if status:
+                return int(
+                    self.db.execute(
+                        "SELECT COUNT(*) FROM bookings WHERE support_teacher_id = ? AND status = ?",
+                        (support.id, status),
+                    ).fetchone()[0]
+                )
+            return int(
+                self.db.execute(
+                    "SELECT COUNT(*) FROM bookings WHERE support_teacher_id = ?",
+                    (support.id,),
+                ).fetchone()[0]
+            )
+
+        feedback_rows = self.db.execute(
+            """
+            SELECT feedback.rating, feedback.text, feedback.created_at, bookings.id AS booking_id, bookings.lesson_date
+            FROM feedback
+            JOIN bookings ON bookings.id = feedback.booking_id
+            WHERE bookings.support_teacher_id = ?
+            ORDER BY feedback.created_at DESC
+            LIMIT 5
+            """,
+            (support.id,),
+        ).fetchall()
+        upcoming = self.db.execute(
+            """
+            SELECT *
+            FROM bookings
+            WHERE support_teacher_id = ? AND status = 'booked'
+            ORDER BY lesson_date ASC, start_hour ASC
+            LIMIT 3
+            """,
+            (support.id,),
+        ).fetchall()
+        return {
+            "support": support,
+            "total": count(),
+            "booked": count("booked"),
+            "completed": count("completed"),
+            "cancelled": count("cancelled"),
+            "no_show": count("no_show"),
+            "feedback_count": support.rating_count,
+            "recent_feedback": [dict(row) for row in feedback_rows],
+            "upcoming": [booking for row in upcoming if (booking := self._booking(row))],
+        }
 
     def get_open_slots(self, support_id: int, date: str) -> list[int]:
         support = self.get_support_teacher(support_id)
@@ -674,7 +867,6 @@ class Storage:
         return {
             "users": count("SELECT COUNT(*) FROM users"),
             "students": count("SELECT COUNT(*) FROM users WHERE role = 'student'"),
-            "teachers": count("SELECT COUNT(*) FROM users WHERE role = 'teacher'"),
             "support_teachers": count("SELECT COUNT(*) FROM support_teachers"),
             "categories": count("SELECT COUNT(*) FROM categories WHERE active = 1"),
             "booked": count("SELECT COUNT(*) FROM bookings WHERE status = 'booked'"),

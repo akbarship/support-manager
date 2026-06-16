@@ -2,7 +2,6 @@ ROLE_LABELS = {
     "admin": "👑 Admin",
     "support_teacher": "🧑‍🏫 Support Teacher",
     "student": "🎓 O‘quvchi",
-    "teacher": "👩‍🏫 Teacher",
 }
 
 TEXT = {

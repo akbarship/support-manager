@@ -67,8 +67,8 @@ def category_button_rows(
 
 def admin_keyboard() -> InlineKeyboardMarkup:
     return inline([
-        [("🧑‍🏫 Support Teacher qo‘shish", "admin:add_support")],
-        [("👩‍🏫 Teacher qo‘shish", "admin:add_teacher")],
+        [("🧑‍🏫 Support Teacherlar", "admin:supports")],
+        [("🎓 O‘quvchilar", "admin:students")],
         [("👑 Adminlar", "admin:admins"), ("🧭 Yo‘nalishlar", "admin:categories")],
         [("📣 Xabar yuborish", "admin:sending")],
         [("📊 Statistika", "admin:stats")],
@@ -184,9 +184,7 @@ def date_keyboard(today, support_id: int, category_id: int, support_index: int =
 def slots_keyboard(storage: Storage, category_id: int, support_id: int, support_index: int, date: str, user: User, hours_until, start_at) -> InlineKeyboardMarkup:
     slots = []
     for hour in storage.get_open_slots(support_id, date):
-        if user.role == "teacher" and hours_until(date, hour) < 7:
-            continue
-        if user.role != "teacher" and start_at(date, hour) <= datetime.now():
+        if start_at(date, hour) <= datetime.now():
             continue
         slots.append(hour)
     rows = [[(f"🕘 {hour}:00", f"slot:{category_id}:{support_id}:{support_index}:{date}:{hour}")] for hour in slots]
@@ -201,9 +199,8 @@ def slots_keyboard(storage: Storage, category_id: int, support_id: int, support_
     return inline(rows)
 
 
-def duration_keyboard(category_id: int, support_id: int, support_index: int, date: str, hour: int, role: str) -> InlineKeyboardMarkup:
-    max_hours = 2 if role == "teacher" else 3
-    rows = [[(f"⏱ {index + 1} soat", f"book:{category_id}:{support_id}:{support_index}:{date}:{hour}:{index + 1}")] for index in range(max_hours)]
+def duration_keyboard(category_id: int, support_id: int, support_index: int, date: str, hour: int) -> InlineKeyboardMarkup:
+    rows = [[(f"⏱ {index + 1} soat", f"book:{category_id}:{support_id}:{support_index}:{date}:{hour}:{index + 1}")] for index in range(3)]
     rows.append([("⬅️ Bo‘sh vaqtlarga qaytish", f"date:{category_id}:{support_id}:{support_index}:{date}")])
     return inline(rows)
 

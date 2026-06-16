@@ -21,6 +21,7 @@ class Config:
     admin_ids: set[int]
     database_path: str
     telegram_proxy: str | None = None
+    feedback_channel_id: str | None = None
 
 
 def load_config() -> Config:
@@ -34,4 +35,5 @@ def load_config() -> Config:
         admin_ids=_parse_admin_ids(getenv("ADMIN_IDS", "")),
         database_path=getenv("DATABASE_PATH", "./data/support-manager.sqlite"),
         telegram_proxy=getenv("TELEGRAM_PROXY") or None,
+        feedback_channel_id=getenv("FEEDBACK_CHANNEL_ID") or None,
     )

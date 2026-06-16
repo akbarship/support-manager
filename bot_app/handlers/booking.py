@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from aiogram import F, Router
 from aiogram.types import CallbackQuery
 
+from bot_app.config import Config
 from bot_app.database import Storage, User
 from bot_app.keyboards import (
     back_to_main_keyboard,
@@ -156,7 +157,7 @@ async def choose_slot(callback: CallbackQuery, storage: Storage) -> None:
         return
     await callback.message.answer(
         title("⏱ Davomiylik", "Dars necha soat bo‘ladi?"),
-        reply_markup=duration_keyboard(int(category_id), int(support_id), int(support_index), date, int(hour), user.role),
+        reply_markup=duration_keyboard(int(category_id), int(support_id), int(support_index), date, int(hour)),
     )
 
 
@@ -175,9 +176,6 @@ async def book(callback: CallbackQuery, storage: Storage) -> None:
         return
     if user.banned_until and datetime.fromisoformat(user.banned_until) > datetime.now():
         await callback.message.answer(f"🚫 Siz vaqtincha band qila olmaysiz.\nBan tugaydi: {user.banned_until[:10]}", reply_markup=back_to_main_keyboard(user))
-        return
-    if user.role == "teacher" and hours_until(date, int(hour)) < 7:
-        await callback.message.answer("⏳ Teacher darsni kamida 7 soat oldin band qilishi kerak.", reply_markup=back_to_main_keyboard(user))
         return
     booking = storage.create_booking(user.role, user.phone, int(support_id), int(category_id), date, int(hour), int(duration))
     if not booking:
@@ -287,7 +285,7 @@ async def learner_cancel(callback: CallbackQuery, storage: Storage) -> None:
 
 
 @router.callback_query(F.data.startswith("rate:"))
-async def rate(callback: CallbackQuery, storage: Storage) -> None:
+async def rate(callback: CallbackQuery, storage: Storage, config: Config) -> None:
     await callback.answer()
     await delete_callback_message(callback)
     _, booking_id, rating = callback.data.split(":")
@@ -301,6 +299,7 @@ async def rate(callback: CallbackQuery, storage: Storage) -> None:
     booking = storage.get_booking(int(booking_id))
     support = storage.get_support_teacher(booking.support_teacher_id) if booking else None
     support_user = storage.get_user_by_phone(support.phone) if support else None
+    learner = storage.get_user_by_phone(booking.user_phone) if booking else None
     if support_user and support_user.chat_id and booking and support:
         updated_support = storage.get_support_teacher(support.id)
         await callback.bot.send_message(
@@ -315,6 +314,26 @@ async def rate(callback: CallbackQuery, storage: Storage) -> None:
             ]),
             reply_markup=back_to_main_keyboard({"role": "support_teacher"}),
         )
+    if config.feedback_channel_id and booking and support:
+        updated_support = storage.get_support_teacher(support.id)
+        try:
+            await callback.bot.send_message(
+                config.feedback_channel_id,
+                "\n".join(filter(None, [
+                    "⭐ Support Teacher feedback",
+                    f"🧑‍🏫 {support.name} {support.surname}",
+                    f"📱 Support telefon: {support.phone}",
+                    f"📚 Dars #{booking.id}",
+                    f"📅 {booking.date}",
+                    f"🕘 {booking.start_hour}:00 ({booking.duration} soat)",
+                    f"⭐ Baho: {rating}/5",
+                    f"📊 Reyting: {updated_support.rating}/5 ({updated_support.rating_count})" if updated_support else "",
+                    f"👤 Feedback bergan: {learner.name} {learner.surname}" if learner else "",
+                    f"📱 Telefon: {learner.phone}" if learner else "",
+                ])),
+            )
+        except Exception:
+            pass
     await callback.message.answer("🙏 Feedback uchun rahmat.", reply_markup=back_to_main_keyboard(user))
 
 

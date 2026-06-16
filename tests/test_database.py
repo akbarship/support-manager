@@ -87,15 +87,20 @@ class StorageTest(unittest.TestCase):
         self.assertEqual(user.language, "ru")
         self.assertEqual(self.storage.get_user_by_telegram_id(123).phone, user.phone)
 
-    def test_adds_and_removes_admin_without_changing_role(self):
-        teacher = self.storage.upsert_allowed_user("+998904444444", "teacher", "Dilshod", "Nazarov")
-        admin = self.storage.add_admin(teacher.phone)
+    def test_legacy_teacher_role_is_saved_as_student(self):
+        user = self.storage.upsert_allowed_user("+998904444444", "teacher", "Dilshod", "Nazarov")
 
-        self.assertEqual(admin.role, "teacher")
-        self.assertEqual([user.phone for user in self.storage.list_admins()], [teacher.phone])
+        self.assertEqual(user.role, "student")
+
+    def test_adds_and_removes_admin_without_changing_role(self):
+        student = self.storage.upsert_allowed_user("+998904444444", "student", "Dilshod", "Nazarov")
+        admin = self.storage.add_admin(student.phone)
+
+        self.assertEqual(admin.role, "student")
+        self.assertEqual([user.phone for user in self.storage.list_admins()], [student.phone])
 
         linked = self.storage.link_telegram_user(
-            teacher.phone,
+            student.phone,
             444,
             555,
             {"first_name": "Dilshod", "last_name": "Nazarov"},
@@ -105,9 +110,9 @@ class StorageTest(unittest.TestCase):
         self.assertTrue(self.storage.is_admin_telegram_id(444))
         self.assertEqual(self.storage.list_admin_chat_ids(), [555])
 
-        self.assertTrue(self.storage.remove_admin(teacher.phone))
+        self.assertTrue(self.storage.remove_admin(student.phone))
         self.assertFalse(self.storage.is_admin_telegram_id(444))
-        self.assertEqual(self.storage.get_user_by_phone(teacher.phone).role, "teacher")
+        self.assertEqual(self.storage.get_user_by_phone(student.phone).role, "student")
 
     def test_support_teacher_contact_gets_support_role(self):
         _, support, _, _ = self.seed()
@@ -163,11 +168,90 @@ class StorageTest(unittest.TestCase):
         blocked = self.storage.create_booking("student", student.phone, support.id, category.id, "2099-01-04", 10, 1)
         self.assertIsNone(blocked)
 
+    def test_admin_can_ban_and_unban_student(self):
+        category, support, student, _ = self.seed()
+
+        banned = self.storage.ban_student(student.phone, 14)
+        blocked = self.storage.create_booking("student", student.phone, support.id, category.id, "2099-01-02", 10, 1)
+        unbanned = self.storage.unban_student(student.phone)
+        allowed = self.storage.create_booking("student", student.phone, support.id, category.id, "2099-01-02", 10, 1)
+
+        self.assertIsNotNone(banned)
+        self.assertIsNotNone(banned.banned_until)
+        self.assertIsNone(blocked)
+        self.assertIsNotNone(unbanned)
+        self.assertIsNone(unbanned.banned_until)
+        self.assertIsNotNone(allowed)
+
+    def test_deletes_student_only_without_active_bookings(self):
+        _, _, student, booking = self.seed()
+
+        self.assertFalse(self.storage.delete_student(student.phone))
+        self.storage.complete_booking(booking.id)
+
+        self.assertTrue(self.storage.delete_student(student.phone))
+        self.assertIsNone(self.storage.get_user_by_phone(student.phone))
+
+    def test_student_list_excludes_admins(self):
+        student = self.storage.upsert_allowed_user("+998907777777", "student", "Aziz", "Karimov")
+        admin = self.storage.add_admin("+998908888888", "Admin", "User")
+
+        self.assertIn(student.phone, [user.phone for user in self.storage.list_students()])
+        self.assertNotIn(admin.phone, [user.phone for user in self.storage.list_students()])
+
     def test_feedback_once(self):
         _, _, _, booking = self.seed()
         self.storage.complete_booking(booking.id)
         self.assertIsNotNone(self.storage.add_feedback(booking.id, 5))
         self.assertIsNone(self.storage.add_feedback(booking.id, 1))
+
+    def test_support_teacher_stats_include_lessons_and_feedback(self):
+        _, support, _, booking = self.seed()
+        self.storage.complete_booking(booking.id)
+        self.storage.add_feedback(booking.id, 4)
+
+        stats = self.storage.support_teacher_stats(support.id)
+
+        self.assertIsNotNone(stats)
+        self.assertEqual(stats["total"], 1)
+        self.assertEqual(stats["completed"], 1)
+        self.assertEqual(stats["booked"], 0)
+        self.assertEqual(stats["support"].conducted_lessons, 1)
+        self.assertEqual(stats["support"].rating, 4)
+        self.assertEqual(stats["recent_feedback"][0]["rating"], 4)
+
+    def test_updates_support_teacher_profile_and_categories(self):
+        first, support, _, _ = self.seed()
+        second = self.storage.create_category("SAT Support")
+
+        updated = self.storage.update_support_teacher(
+            support.id,
+            phone="+998909999999",
+            name="Vali",
+            surname="Aliyev",
+            ielts="7.5",
+            cefr="B2",
+            sat="-",
+            categories=[second.id],
+        )
+
+        self.assertIsNotNone(updated)
+        self.assertEqual(updated.phone, "998909999999")
+        self.assertEqual(updated.name, "Vali")
+        self.assertEqual(updated.categories, [second.id])
+        self.assertEqual(self.storage.list_support_teachers(first.id), [])
+        self.assertEqual(self.storage.get_user_by_phone(updated.phone).role, "support_teacher")
+        self.assertEqual(self.storage.get_user_by_phone(support.phone).role, "student")
+
+    def test_deletes_support_teacher_only_without_active_bookings(self):
+        _, support, _, booking = self.seed()
+
+        self.assertFalse(self.storage.delete_support_teacher(support.id))
+        self.storage.complete_booking(booking.id)
+
+        self.assertTrue(self.storage.delete_support_teacher(support.id))
+        self.assertIsNone(self.storage.get_support_teacher(support.id))
+        self.assertEqual(self.storage.get_user_by_phone(support.phone).role, "student")
 
 
 if __name__ == "__main__":

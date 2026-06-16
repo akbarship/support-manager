@@ -5,12 +5,6 @@ class Onboarding(StatesGroup):
     contact = State()
 
 
-class AddUser(StatesGroup):
-    phone = State()
-    name = State()
-    surname = State()
-
-
 class AddAdmin(StatesGroup):
     phone = State()
     name = State()
@@ -24,6 +18,11 @@ class AddSupportTeacher(StatesGroup):
     ielts = State()
     cefr = State()
     sat = State()
+    categories = State()
+
+
+class EditSupportTeacher(StatesGroup):
+    value = State()
     categories = State()
 
 
