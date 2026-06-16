@@ -130,6 +130,12 @@ class Storage:
               updated_at TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS admins (
+              phone TEXT PRIMARY KEY,
+              created_at TEXT NOT NULL,
+              FOREIGN KEY(phone) REFERENCES users(phone) ON DELETE CASCADE
+            );
+
             CREATE TABLE IF NOT EXISTS categories (
               id INTEGER PRIMARY KEY AUTOINCREMENT,
               name TEXT NOT NULL,
@@ -339,6 +345,70 @@ class Storage:
             rows = self.db.execute("SELECT * FROM users ORDER BY created_at DESC").fetchall()
         return [user for row in rows if (user := self.refresh_ban(self._user(row)))]
 
+    def add_admin(self, phone: str, name: str = "", surname: str = "") -> User:
+        clean_phone = normalize_phone(phone)
+        user = self.get_user_by_phone(clean_phone)
+        if not user:
+            user = self.upsert_allowed_user(clean_phone, "student", name, surname)
+        elif (name or surname) and (not user.name or not user.surname):
+            user = self.upsert_allowed_user(
+                clean_phone,
+                user.role,
+                name or user.name,
+                surname or user.surname,
+            )
+        self.db.execute(
+            "INSERT OR IGNORE INTO admins (phone, created_at) VALUES (?, ?)",
+            (clean_phone, now()),
+        )
+        self.db.commit()
+        refreshed = self.get_user_by_phone(clean_phone)
+        assert refreshed is not None
+        return refreshed
+
+    def remove_admin(self, phone: str) -> bool:
+        cursor = self.db.execute("DELETE FROM admins WHERE phone = ?", (normalize_phone(phone),))
+        self.db.commit()
+        return cursor.rowcount > 0
+
+    def list_admins(self) -> list[User]:
+        rows = self.db.execute(
+            """
+            SELECT users.*
+            FROM admins
+            JOIN users ON users.phone = admins.phone
+            ORDER BY admins.created_at DESC
+            """
+        ).fetchall()
+        return [user for row in rows if (user := self.refresh_ban(self._user(row)))]
+
+    def is_admin_telegram_id(self, telegram_id: int | None) -> bool:
+        if telegram_id is None:
+            return False
+        row = self.db.execute(
+            """
+            SELECT 1
+            FROM admins
+            JOIN users ON users.phone = admins.phone
+            WHERE users.telegram_id = ?
+            LIMIT 1
+            """,
+            (telegram_id,),
+        ).fetchone()
+        return row is not None
+
+    def list_admin_chat_ids(self) -> list[int]:
+        rows = self.db.execute(
+            """
+            SELECT users.chat_id
+            FROM admins
+            JOIN users ON users.phone = admins.phone
+            WHERE users.chat_id IS NOT NULL
+            ORDER BY admins.created_at DESC
+            """
+        ).fetchall()
+        return [int(row["chat_id"]) for row in rows]
+
     def create_category(self, name: str) -> Category:
         cursor = self.db.execute("INSERT INTO categories (name, active, created_at) VALUES (?, 1, ?)", (name, now()))
         self.db.commit()
@@ -353,6 +423,31 @@ class Storage:
     def get_category(self, category_id: int) -> Category | None:
         row = self.db.execute("SELECT * FROM categories WHERE id = ?", (category_id,)).fetchone()
         return self._category(row)
+
+    def update_category(self, category_id: int, name: str) -> Category | None:
+        self.db.execute(
+            "UPDATE categories SET name = ? WHERE id = ? AND active = 1",
+            (name, category_id),
+        )
+        self.db.commit()
+        category = self.get_category(category_id)
+        return category if category and category.active else None
+
+    def delete_category(self, category_id: int) -> bool:
+        category = self.get_category(category_id)
+        if not category or not category.active:
+            return False
+
+        self.db.execute("UPDATE categories SET active = 0 WHERE id = ?", (category_id,))
+        for support in self.list_support_teachers():
+            categories = [item for item in support.categories if int(item) != int(category_id)]
+            if categories != support.categories:
+                self.db.execute(
+                    "UPDATE support_teachers SET categories_json = ? WHERE id = ?",
+                    (write_json(categories), support.id),
+                )
+        self.db.commit()
+        return True
 
     def create_support_teacher(self, data: dict[str, Any]) -> SupportTeacher:
         clean_phone = normalize_phone(data["phone"])

@@ -13,6 +13,11 @@ python3 -m pip install --target .python_deps -r requirements.txt
 python main.py
 ```
 
+Telegram long polling works with only one running instance per bot token. If you see
+`TelegramConflictError: terminated by other getUpdates request`, stop the other local
+terminal/service or any deployed copy that uses the same `BOT_TOKEN`, then start this
+app again.
+
 ## Features
 
 - Onboarding starts with language selection: Uzbek or Russian.

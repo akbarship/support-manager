@@ -13,17 +13,18 @@ from bot_app.keyboards import (
     admin_flow_keyboard,
     admin_keyboard,
     back_to_main_keyboard,
+    category_button_rows,
     inline,
     support_category_keyboard,
 )
-from bot_app.states import AddSupportTeacher, AddUser, Broadcast, CreateCategory
+from bot_app.states import AddAdmin, AddSupportTeacher, AddUser, Broadcast, CreateCategory, EditCategory
 from bot_app.texts import ROLE_LABELS, title
 
 router = Router()
 
 
-def is_admin(user_id: int | None, config: Config) -> bool:
-    return bool(user_id and user_id in config.admin_ids)
+def is_admin(user_id: int | None, config: Config, storage: Storage | None = None) -> bool:
+    return bool(user_id and (user_id in config.admin_ids or (storage and storage.is_admin_telegram_id(user_id))))
 
 
 async def delete_callback_message(callback: CallbackQuery) -> None:
@@ -54,9 +55,31 @@ async def require_text(message: Message, state: FSMContext, prompt_text: str, st
     return None
 
 
+def category_admin_rows(storage: Storage) -> list[list[tuple[str, str]]]:
+    rows = [[("➕ Yo‘nalish yaratish", "create_category")]]
+    rows.extend(
+        category_button_rows(
+            storage.list_categories(),
+            lambda category: f"category:open:{category.id}",
+        )
+    )
+    rows.append([("🏠 Admin menyu", "admin:menu")])
+    return rows
+
+
+def managed_admin_rows(storage: Storage) -> list[list[tuple[str, str]]]:
+    rows = [[("➕ Admin qo‘shish", "admin:add_admin")]]
+    for admin in storage.list_admins():
+        name = f"{admin.name} {admin.surname}".strip()
+        label = f"{name or admin.phone} | {admin.phone}"
+        rows.append([(label, f"admin_user:open:{admin.phone}")])
+    rows.append([("🏠 Admin menyu", "admin:menu")])
+    return rows
+
+
 @router.message(Command("admin"))
-async def admin_panel(message: Message, config: Config, state: FSMContext) -> None:
-    if not is_admin(message.from_user.id if message.from_user else None, config):
+async def admin_panel(message: Message, config: Config, state: FSMContext, storage: Storage) -> None:
+    if not is_admin(message.from_user.id if message.from_user else None, config, storage):
         await message.answer("🚫 Admin panelga ruxsat yo‘q.")
         return
     await state.clear()
@@ -64,42 +87,159 @@ async def admin_panel(message: Message, config: Config, state: FSMContext) -> No
 
 
 @router.callback_query(F.data == "admin:menu")
-async def admin_menu(callback: CallbackQuery, config: Config, state: FSMContext) -> None:
+async def admin_menu(callback: CallbackQuery, config: Config, state: FSMContext, storage: Storage) -> None:
     await callback.answer()
     await state.clear()
     await delete_callback_message(callback)
-    if callback.message and is_admin(callback.from_user.id, config):
+    if callback.message and is_admin(callback.from_user.id, config, storage):
         await callback.message.answer("👑 Admin panel", reply_markup=admin_keyboard())
 
 
 @router.callback_query(F.data == "admin:cancel")
-async def admin_cancel(callback: CallbackQuery, config: Config, state: FSMContext) -> None:
+async def admin_cancel(callback: CallbackQuery, config: Config, state: FSMContext, storage: Storage) -> None:
     await callback.answer()
     await state.clear()
     await delete_callback_message(callback)
-    if callback.message and is_admin(callback.from_user.id, config):
+    if callback.message and is_admin(callback.from_user.id, config, storage):
         await callback.message.answer("❌ Amal bekor qilindi.", reply_markup=back_to_main_keyboard({"role": "admin"}))
 
 
 @router.callback_query(F.data == "admin:back")
-async def admin_back(callback: CallbackQuery, config: Config, state: FSMContext) -> None:
+async def admin_back(callback: CallbackQuery, config: Config, state: FSMContext, storage: Storage) -> None:
     await callback.answer()
     await state.clear()
     await delete_callback_message(callback)
-    if callback.message and is_admin(callback.from_user.id, config):
+    if callback.message and is_admin(callback.from_user.id, config, storage):
         await callback.message.answer("👑 Admin panel", reply_markup=admin_keyboard())
 
 
 @router.callback_query(F.data == "admin:add_teacher")
-async def start_add_user(callback: CallbackQuery, config: Config, state: FSMContext) -> None:
+async def start_add_user(callback: CallbackQuery, config: Config, state: FSMContext, storage: Storage) -> None:
     await callback.answer()
     await delete_callback_message(callback)
-    if not callback.message or not is_admin(callback.from_user.id, config):
+    if not callback.message or not is_admin(callback.from_user.id, config, storage):
         return
     role = "teacher"
     await state.set_state(AddUser.phone)
     await state.update_data(role=role)
     await admin_prompt(callback.message, state, title("📱 Telefon raqam", f"{ROLE_LABELS[role]} telefon raqamini kiriting."), "phone")
+
+
+@router.callback_query(F.data == "admin:admins")
+async def admins(callback: CallbackQuery, config: Config, storage: Storage) -> None:
+    await callback.answer()
+    await delete_callback_message(callback)
+    if not callback.message or not is_admin(callback.from_user.id, config, storage):
+        return
+    await callback.message.answer(title("👑 Adminlar", "Bot adminlarini boshqaring."), reply_markup=inline(managed_admin_rows(storage)))
+
+
+@router.callback_query(F.data == "admin:add_admin")
+async def add_admin_start(callback: CallbackQuery, config: Config, state: FSMContext, storage: Storage) -> None:
+    await callback.answer()
+    await delete_callback_message(callback)
+    if not callback.message or not is_admin(callback.from_user.id, config, storage):
+        return
+    await state.set_state(AddAdmin.phone)
+    await admin_prompt(callback.message, state, title("📱 Telefon raqam", "Yangi admin telefon raqamini kiriting."), "phone")
+
+
+@router.message(AddAdmin.phone)
+async def add_admin_phone(message: Message, state: FSMContext) -> None:
+    await delete_previous_prompt(message, state)
+    value = await require_text(message, state, "⚠️ Telefon raqamni matn ko‘rinishida yuboring.", "phone")
+    if not value:
+        return
+    await state.update_data(phone=value)
+    await state.set_state(AddAdmin.name)
+    await admin_prompt(message, state, title("👤 Ism", "Admin ismini kiriting."), "name")
+
+
+@router.message(AddAdmin.name)
+async def add_admin_name(message: Message, state: FSMContext) -> None:
+    await delete_previous_prompt(message, state)
+    value = await require_text(message, state, "⚠️ Ismni matn ko‘rinishida yuboring.", "name")
+    if not value:
+        return
+    await state.update_data(name=value)
+    await state.set_state(AddAdmin.surname)
+    await admin_prompt(message, state, title("👤 Familiya", "Admin familiyasini kiriting."), "surname")
+
+
+@router.message(AddAdmin.surname)
+async def add_admin_surname(message: Message, state: FSMContext, storage: Storage) -> None:
+    await delete_previous_prompt(message, state)
+    value = await require_text(message, state, "⚠️ Familiyani matn ko‘rinishida yuboring.", "surname")
+    if not value:
+        return
+    data = await state.get_data()
+    user = storage.add_admin(data["phone"], data["name"], value)
+    await state.clear()
+    await message.answer(
+        f"✅ Admin qo‘shildi\n👤 {user.name} {user.surname}\n📱 {user.phone}",
+        reply_markup=back_to_main_keyboard({"role": "admin"}),
+    )
+
+
+@router.callback_query(F.data.startswith("admin_user:open:"))
+async def open_admin(callback: CallbackQuery, config: Config, storage: Storage) -> None:
+    await callback.answer()
+    await delete_callback_message(callback)
+    if not callback.message or not is_admin(callback.from_user.id, config, storage):
+        return
+    phone = callback.data.split(":")[2]
+    user = storage.get_user_by_phone(phone)
+    if not user:
+        await callback.message.answer("⚠️ Admin topilmadi.", reply_markup=inline(managed_admin_rows(storage)))
+        return
+    await callback.message.answer(
+        "\n".join([
+            f"👤 {user.name} {user.surname}".strip(),
+            f"📱 {user.phone}",
+            f"🔐 Role: {ROLE_LABELS.get(user.role, user.role)}",
+        ]),
+        reply_markup=inline([
+            [("🗑 Adminlikdan olish", f"admin_user:delete:{user.phone}")],
+            [("⬅️ Adminlar", "admin:admins")],
+        ]),
+    )
+
+
+@router.callback_query(F.data.startswith("admin_user:delete:"))
+async def delete_admin_confirm(callback: CallbackQuery, config: Config, storage: Storage) -> None:
+    await callback.answer()
+    await delete_callback_message(callback)
+    if not callback.message or not is_admin(callback.from_user.id, config, storage):
+        return
+    phone = callback.data.split(":")[2]
+    user = storage.get_user_by_phone(phone)
+    if not user:
+        await callback.message.answer("⚠️ Admin topilmadi.", reply_markup=inline(managed_admin_rows(storage)))
+        return
+    await callback.message.answer(
+        f"🗑 {user.name or user.phone} adminlikdan olinsinmi?",
+        reply_markup=inline([
+            [("✅ Ha, olish", f"admin_user:delete_confirm:{user.phone}")],
+            [("⬅️ Bekor qilish", f"admin_user:open:{user.phone}")],
+        ]),
+    )
+
+
+@router.callback_query(F.data.startswith("admin_user:delete_confirm:"))
+async def delete_admin_finish(callback: CallbackQuery, config: Config, storage: Storage) -> None:
+    await callback.answer()
+    await delete_callback_message(callback)
+    if not callback.message or not is_admin(callback.from_user.id, config, storage):
+        return
+    phone = callback.data.split(":")[2]
+    if storage.get_user_by_telegram_id(callback.from_user.id) and storage.get_user_by_telegram_id(callback.from_user.id).phone == phone:
+        await callback.message.answer("⚠️ O‘zingizni adminlikdan ola olmaysiz.", reply_markup=inline(managed_admin_rows(storage)))
+        return
+    removed = storage.remove_admin(phone)
+    if not removed:
+        await callback.message.answer("⚠️ Admin topilmadi.", reply_markup=inline(managed_admin_rows(storage)))
+        return
+    await callback.message.answer("✅ Admin o‘chirildi.", reply_markup=inline(managed_admin_rows(storage)))
 
 
 @router.message(AddUser.phone)
@@ -137,10 +277,10 @@ async def add_user_surname(message: Message, state: FSMContext, storage: Storage
 
 
 @router.callback_query(F.data == "admin:add_support")
-async def start_add_support(callback: CallbackQuery, config: Config, state: FSMContext) -> None:
+async def start_add_support(callback: CallbackQuery, config: Config, state: FSMContext, storage: Storage) -> None:
     await callback.answer()
     await delete_callback_message(callback)
-    if not callback.message or not is_admin(callback.from_user.id, config):
+    if not callback.message or not is_admin(callback.from_user.id, config, storage):
         return
     await state.set_state(AddSupportTeacher.phone)
     await state.update_data(prompt_message_id=None)
@@ -261,20 +401,119 @@ async def finish_support_teacher(callback: CallbackQuery, state: FSMContext, sto
 async def categories(callback: CallbackQuery, config: Config, storage: Storage) -> None:
     await callback.answer()
     await delete_callback_message(callback)
-    if not is_admin(callback.from_user.id, config):
+    if not is_admin(callback.from_user.id, config, storage):
         return
     if callback.message:
-        rows = [[("➕ Yo‘nalish yaratish", "create_category")]]
-        rows.extend([[(f"📘 {category.name}", "noop")] for category in storage.list_categories()])
-        rows.append([("🏠 Admin menyu", "admin:menu")])
-        await callback.message.answer(title("🧭 Yo‘nalishlar", "Support yo‘nalishlarini boshqaring."), reply_markup=inline(rows))
+        await callback.message.answer(title("🧭 Yo‘nalishlar", "Support yo‘nalishlarini boshqaring."), reply_markup=inline(category_admin_rows(storage)))
+
+
+@router.callback_query(F.data.startswith("category:open:"))
+async def open_category(callback: CallbackQuery, config: Config, storage: Storage) -> None:
+    await callback.answer()
+    await delete_callback_message(callback)
+    if not callback.message or not is_admin(callback.from_user.id, config, storage):
+        return
+
+    category_id = int(callback.data.split(":")[2])
+    category = storage.get_category(category_id)
+    if not category or not category.active:
+        await callback.message.answer("⚠️ Yo‘nalish topilmadi.", reply_markup=inline(category_admin_rows(storage)))
+        return
+
+    attached = len(storage.list_support_teachers(category.id))
+    await callback.message.answer(
+        "\n".join([
+            f"#{category.id} {category.name}",
+            f"🧑‍🏫 Biriktirilgan Support Teacherlar: {attached}",
+        ]),
+        reply_markup=inline([
+            [("✏️ Nomini o‘zgartirish", f"category:edit:{category.id}")],
+            [("🗑 O‘chirish", f"category:delete:{category.id}")],
+            [("⬅️ Yo‘nalishlar", "admin:categories")],
+        ]),
+    )
+
+
+@router.callback_query(F.data.startswith("category:edit:"))
+async def edit_category_start(callback: CallbackQuery, config: Config, state: FSMContext, storage: Storage) -> None:
+    await callback.answer()
+    await delete_callback_message(callback)
+    if not callback.message or not is_admin(callback.from_user.id, config, storage):
+        return
+
+    category_id = int(callback.data.split(":")[2])
+    category = storage.get_category(category_id)
+    if not category or not category.active:
+        await callback.message.answer("⚠️ Yo‘nalish topilmadi.", reply_markup=inline(category_admin_rows(storage)))
+        return
+
+    await state.set_state(EditCategory.name)
+    await state.update_data(category_id=category.id)
+    await admin_prompt(callback.message, state, title("✏️ Yo‘nalish nomi", f"Yangi nomni kiriting.\nHozirgi nom: {category.name}"), "name")
+
+
+@router.message(EditCategory.name)
+async def edit_category_name(message: Message, state: FSMContext, storage: Storage) -> None:
+    await delete_previous_prompt(message, state)
+    value = await require_text(message, state, "⚠️ Yangi nomni matn ko‘rinishida yuboring.", "name")
+    if not value:
+        return
+
+    data = await state.get_data()
+    category = storage.update_category(int(data["category_id"]), value)
+    await state.clear()
+    if not category:
+        await message.answer("⚠️ Yo‘nalish topilmadi.", reply_markup=back_to_main_keyboard({"role": "admin"}))
+        return
+    await message.answer(f"✅ Yo‘nalish yangilandi: #{category.id} {category.name}", reply_markup=back_to_main_keyboard({"role": "admin"}))
+
+
+@router.callback_query(F.data.startswith("category:delete:"))
+async def delete_category_confirm(callback: CallbackQuery, config: Config, storage: Storage) -> None:
+    await callback.answer()
+    await delete_callback_message(callback)
+    if not callback.message or not is_admin(callback.from_user.id, config, storage):
+        return
+
+    category_id = int(callback.data.split(":")[2])
+    category = storage.get_category(category_id)
+    if not category or not category.active:
+        await callback.message.answer("⚠️ Yo‘nalish topilmadi.", reply_markup=inline(category_admin_rows(storage)))
+        return
+
+    attached = len(storage.list_support_teachers(category.id))
+    await callback.message.answer(
+        "\n".join([
+            f"🗑 #{category.id} {category.name} o‘chirilsinmi?",
+            f"Bu yo‘nalish {attached} ta Support Teacherdan olib tashlanadi.",
+        ]),
+        reply_markup=inline([
+            [("✅ Ha, o‘chirish", f"category:delete_confirm:{category.id}")],
+            [("⬅️ Bekor qilish", f"category:open:{category.id}")],
+        ]),
+    )
+
+
+@router.callback_query(F.data.startswith("category:delete_confirm:"))
+async def delete_category_finish(callback: CallbackQuery, config: Config, storage: Storage) -> None:
+    await callback.answer()
+    await delete_callback_message(callback)
+    if not callback.message or not is_admin(callback.from_user.id, config, storage):
+        return
+
+    category_id = int(callback.data.split(":")[2])
+    deleted = storage.delete_category(category_id)
+    if not deleted:
+        await callback.message.answer("⚠️ Yo‘nalish topilmadi.", reply_markup=inline(category_admin_rows(storage)))
+        return
+    await callback.message.answer("✅ Yo‘nalish o‘chirildi.", reply_markup=inline(category_admin_rows(storage)))
 
 
 @router.callback_query(F.data == "create_category")
-async def create_category_start(callback: CallbackQuery, config: Config, state: FSMContext) -> None:
+async def create_category_start(callback: CallbackQuery, config: Config, state: FSMContext, storage: Storage) -> None:
     await callback.answer()
     await delete_callback_message(callback)
-    if not callback.message or not is_admin(callback.from_user.id, config):
+    if not callback.message or not is_admin(callback.from_user.id, config, storage):
         return
     await state.set_state(CreateCategory.name)
     if callback.message:
@@ -293,10 +532,10 @@ async def create_category_name(message: Message, state: FSMContext, storage: Sto
 
 
 @router.callback_query(F.data == "admin:sending")
-async def sending(callback: CallbackQuery, config: Config) -> None:
+async def sending(callback: CallbackQuery, config: Config, storage: Storage) -> None:
     await callback.answer()
     await delete_callback_message(callback)
-    if not is_admin(callback.from_user.id, config):
+    if not is_admin(callback.from_user.id, config, storage):
         return
     if callback.message:
         await callback.message.answer(title("📣 Xabar yuborish", "Kimlarga yuboriladi?"), reply_markup=inline([
@@ -308,10 +547,10 @@ async def sending(callback: CallbackQuery, config: Config) -> None:
 
 
 @router.callback_query(F.data.startswith("broadcast:"))
-async def broadcast_start(callback: CallbackQuery, config: Config, state: FSMContext) -> None:
+async def broadcast_start(callback: CallbackQuery, config: Config, state: FSMContext, storage: Storage) -> None:
     await callback.answer()
     await delete_callback_message(callback)
-    if not callback.message or not is_admin(callback.from_user.id, config):
+    if not callback.message or not is_admin(callback.from_user.id, config, storage):
         return
     role = callback.data.split(":")[1]
     await state.set_state(Broadcast.message)
@@ -340,7 +579,7 @@ async def broadcast_message(message: Message, state: FSMContext, storage: Storag
 async def stats(callback: CallbackQuery, config: Config, storage: Storage) -> None:
     await callback.answer()
     await delete_callback_message(callback)
-    if not is_admin(callback.from_user.id, config):
+    if not is_admin(callback.from_user.id, config, storage):
         return
     stats_data = storage.stats()
     if callback.message:

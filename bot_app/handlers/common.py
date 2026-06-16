@@ -26,7 +26,7 @@ async def show_main_menu(message: Message, storage: Storage, telegram_id: int | 
     if not user:
         await message.answer(t("choose_language", "uz"), reply_markup=language_keyboard())
         return
-    await message.answer(f"🏠 {t('main_menu', user.language)}", reply_markup=main_keyboard(user))
+    await message.answer(f"🏠 {t('main_menu', user.language)}", reply_markup=main_keyboard(user, storage.is_admin_telegram_id(telegram_id)))
 
 
 async def finish_onboarding(message: Message, storage: Storage, state: FSMContext, phone: str, language: str) -> None:

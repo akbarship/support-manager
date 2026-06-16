@@ -11,6 +11,12 @@ class AddUser(StatesGroup):
     surname = State()
 
 
+class AddAdmin(StatesGroup):
+    phone = State()
+    name = State()
+    surname = State()
+
+
 class AddSupportTeacher(StatesGroup):
     phone = State()
     name = State()
@@ -22,6 +28,10 @@ class AddSupportTeacher(StatesGroup):
 
 
 class CreateCategory(StatesGroup):
+    name = State()
+
+
+class EditCategory(StatesGroup):
     name = State()
 
 

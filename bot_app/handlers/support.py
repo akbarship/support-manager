@@ -61,8 +61,9 @@ def completion_block_reason(booking: Booking) -> str | None:
     return None
 
 
-async def notify_admins(config: Config, text: str, callback: CallbackQuery) -> None:
-    for admin_id in config.admin_ids:
+async def notify_admins(config: Config, storage: Storage, text: str, callback: CallbackQuery) -> None:
+    admin_ids = set(config.admin_ids) | set(storage.list_admin_chat_ids())
+    for admin_id in admin_ids:
         try:
             await callback.bot.send_message(admin_id, text)
         except Exception:
@@ -326,6 +327,7 @@ async def no_show(callback: CallbackQuery, storage: Storage, config: Config) -> 
         await callback.bot.send_message(user.chat_id, learner_text)
     await notify_admins(
         config,
+        storage,
         "\n".join(filter(None, [
             "🚫 O‘quvchiga ban berildi" if banned_until else "⚠️ O‘quvchiga ogohlantirish berildi",
             f"👤 {user.name} {user.surname}",

@@ -33,6 +33,44 @@ class StorageTest(unittest.TestCase):
         category, support, _, _ = self.seed()
         self.assertEqual(self.storage.list_support_teachers(category.id)[0].id, support.id)
 
+    def test_support_teacher_can_have_multiple_categories(self):
+        first = self.storage.create_category("IELTS Support")
+        second = self.storage.create_category("SAT Support")
+        support = self.storage.create_support_teacher({
+            "phone": "+998901234567",
+            "name": "Sardor",
+            "surname": "Rahimov",
+            "categories": [first.id, second.id],
+        })
+
+        self.assertEqual(support.categories, [first.id, second.id])
+        self.assertEqual(self.storage.list_support_teachers(first.id)[0].id, support.id)
+        self.assertEqual(self.storage.list_support_teachers(second.id)[0].id, support.id)
+
+    def test_updates_category_name(self):
+        category = self.storage.create_category("Old name")
+        updated = self.storage.update_category(category.id, "New name")
+
+        self.assertIsNotNone(updated)
+        self.assertEqual(updated.name, "New name")
+        self.assertEqual(self.storage.list_categories()[0].name, "New name")
+
+    def test_deletes_category_and_detaches_from_support_teachers(self):
+        first = self.storage.create_category("IELTS Support")
+        second = self.storage.create_category("SAT Support")
+        support = self.storage.create_support_teacher({
+            "phone": "+998901234567",
+            "name": "Sardor",
+            "surname": "Rahimov",
+            "categories": [first.id, second.id],
+        })
+
+        self.assertTrue(self.storage.delete_category(first.id))
+
+        self.assertEqual([category.id for category in self.storage.list_categories()], [second.id])
+        self.assertEqual(self.storage.get_support_teacher(support.id).categories, [second.id])
+        self.assertEqual(self.storage.list_support_teachers(first.id), [])
+
     def test_unknown_contact_becomes_student_and_stores_language(self):
         user = self.storage.link_telegram_user(
             "+998903333333",
@@ -48,6 +86,28 @@ class StorageTest(unittest.TestCase):
         self.assertEqual(user.name, "Madina")
         self.assertEqual(user.language, "ru")
         self.assertEqual(self.storage.get_user_by_telegram_id(123).phone, user.phone)
+
+    def test_adds_and_removes_admin_without_changing_role(self):
+        teacher = self.storage.upsert_allowed_user("+998904444444", "teacher", "Dilshod", "Nazarov")
+        admin = self.storage.add_admin(teacher.phone)
+
+        self.assertEqual(admin.role, "teacher")
+        self.assertEqual([user.phone for user in self.storage.list_admins()], [teacher.phone])
+
+        linked = self.storage.link_telegram_user(
+            teacher.phone,
+            444,
+            555,
+            {"first_name": "Dilshod", "last_name": "Nazarov"},
+            "uz",
+        )
+        self.assertIsNotNone(linked)
+        self.assertTrue(self.storage.is_admin_telegram_id(444))
+        self.assertEqual(self.storage.list_admin_chat_ids(), [555])
+
+        self.assertTrue(self.storage.remove_admin(teacher.phone))
+        self.assertFalse(self.storage.is_admin_telegram_id(444))
+        self.assertEqual(self.storage.get_user_by_phone(teacher.phone).role, "teacher")
 
     def test_support_teacher_contact_gets_support_role(self):
         _, support, _, _ = self.seed()

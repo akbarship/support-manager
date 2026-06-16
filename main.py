@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import fcntl
 import site
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Iterator
 
 site.addsitedir(str(Path(__file__).resolve().parent / ".python_deps"))
 
@@ -17,26 +20,57 @@ from bot_app.handlers import setup_routers
 from bot_app.services import reminder_loop
 
 
+class BotAlreadyRunningError(RuntimeError):
+    pass
+
+
+@contextmanager
+def polling_lock(database_path: str) -> Iterator[None]:
+    lock_path = Path(database_path).with_suffix(".polling.lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with lock_path.open("w") as lock_file:
+        try:
+            fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            raise BotAlreadyRunningError(
+                "Bot allaqachon shu kompyuterda ishlayapti. Telegram polling uchun "
+                "faqat bitta bot instance bo'lishi kerak."
+            ) from exc
+
+        lock_file.write(f"{Path.cwd()}\n")
+        lock_file.flush()
+        try:
+            yield
+        finally:
+            fcntl.flock(lock_file, fcntl.LOCK_UN)
+
+
 async def main() -> None:
     config = load_config()
-    session = AiohttpSession(proxy=config.telegram_proxy) if config.telegram_proxy else AiohttpSession()
-    bot = Bot(token=config.bot_token, session=session, default=DefaultBotProperties(parse_mode=None))
-    dispatcher = Dispatcher(storage=MemoryStorage())
-    storage = Storage(config.database_path)
 
-    dispatcher["config"] = config
-    dispatcher["storage"] = storage
-    dispatcher.include_router(setup_routers())
+    with polling_lock(config.database_path):
+        session = AiohttpSession(proxy=config.telegram_proxy) if config.telegram_proxy else AiohttpSession()
+        bot = Bot(token=config.bot_token, session=session, default=DefaultBotProperties(parse_mode=None))
+        dispatcher = Dispatcher(storage=MemoryStorage())
+        storage = Storage(config.database_path)
 
-    reminder_task = asyncio.create_task(reminder_loop(bot, storage))
-    try:
-        print("Support Manager aiogram polling orqali ishga tushdi.")
-        await dispatcher.start_polling(bot, drop_pending_updates=True)
-    finally:
-        reminder_task.cancel()
-        storage.close()
-        await bot.session.close()
+        dispatcher["config"] = config
+        dispatcher["storage"] = storage
+        dispatcher.include_router(setup_routers())
+
+        reminder_task = asyncio.create_task(reminder_loop(bot, storage))
+        try:
+            print("Support Manager aiogram polling orqali ishga tushdi.")
+            await dispatcher.start_polling(bot, drop_pending_updates=True)
+        finally:
+            reminder_task.cancel()
+            storage.close()
+            await bot.session.close()
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except BotAlreadyRunningError as exc:
+        print(exc)

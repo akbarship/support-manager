@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Callable
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
 
-from bot_app.database import Storage, SupportTeacher, User, working_hours
+from bot_app.database import Category, Storage, SupportTeacher, User, working_hours
 from bot_app.texts import ROLE_LABELS, t
 
 
@@ -31,11 +32,45 @@ def inline(rows: list[list[tuple[str, str]]]) -> InlineKeyboardMarkup:
     )
 
 
+def category_button_rows(
+    categories: list[Category],
+    callback_data: Callable[[Category], str],
+    label: Callable[[Category], str] | None = None,
+) -> list[list[tuple[str, str]]]:
+    if not categories:
+        return []
+
+    label = label or (lambda category: category.name)
+    longest_category = max(categories, key=lambda category: len(category.name))
+    rows: list[list[tuple[str, str]]] = []
+    current_row: list[tuple[str, str]] = []
+
+    for category in categories:
+        button = (label(category), callback_data(category))
+        if category.id == longest_category.id:
+            if current_row:
+                rows.append(current_row)
+                current_row = []
+            rows.append([button])
+            continue
+
+        current_row.append(button)
+        if len(current_row) == 2:
+            rows.append(current_row)
+            current_row = []
+
+    if current_row:
+        rows.append(current_row)
+
+    return rows
+
+
 def admin_keyboard() -> InlineKeyboardMarkup:
     return inline([
         [("🧑‍🏫 Support Teacher qo‘shish", "admin:add_support")],
         [("👩‍🏫 Teacher qo‘shish", "admin:add_teacher")],
-        [("🧭 Yo‘nalishlar", "admin:categories"), ("📣 Xabar yuborish", "admin:sending")],
+        [("👑 Adminlar", "admin:admins"), ("🧭 Yo‘nalishlar", "admin:categories")],
+        [("📣 Xabar yuborish", "admin:sending")],
         [("📊 Statistika", "admin:stats")],
     ])
 
@@ -55,8 +90,8 @@ def learner_keyboard(language: str = "uz") -> InlineKeyboardMarkup:
     ])
 
 
-def main_keyboard(user: User) -> InlineKeyboardMarkup:
-    if user.role == "admin":
+def main_keyboard(user: User, is_admin: bool = False) -> InlineKeyboardMarkup:
+    if is_admin or user.role == "admin":
         return admin_keyboard()
     if user.role == "support_teacher":
         return support_keyboard()
@@ -79,17 +114,18 @@ def admin_flow_keyboard(step: str | None = None) -> InlineKeyboardMarkup:
 
 def support_category_keyboard(storage: Storage, selected_ids: list[int]) -> InlineKeyboardMarkup:
     selected = {int(category_id) for category_id in selected_ids}
-    rows = [
-        [(f"{'✅' if category.id in selected else '⬜️'} {category.name}", f"support_category:{category.id}")]
-        for category in storage.list_categories()
-    ]
+    rows = category_button_rows(
+        storage.list_categories(),
+        lambda category: f"support_category:{category.id}",
+        lambda category: f"{'[x]' if category.id in selected else '[ ]'} {category.name}",
+    )
     rows.append([("✅ Tayyor", "support_category_done")])
     rows.append([("⬅️ Orqaga", "admin:back"), ("❌ Bekor qilish", "admin:cancel")])
     return inline(rows)
 
 
 def category_keyboard(storage: Storage) -> InlineKeyboardMarkup:
-    rows = [[(f"📘 {category.name}", f"cat:{category.id}")] for category in storage.list_categories()]
+    rows = category_button_rows(storage.list_categories(), lambda category: f"cat:{category.id}")
     rows.append([("🏠 Asosiy menyu", "main:menu")])
     return inline(rows)
 
