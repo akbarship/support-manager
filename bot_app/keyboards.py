@@ -5,7 +5,7 @@ from typing import Callable
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
 
-from bot_app.database import Category, Storage, SupportTeacher, User, working_hours
+from bot_app.database import Category, Storage, SupportTeacher, User, local_now, working_hours
 from bot_app.texts import ROLE_LABELS, t
 
 
@@ -184,7 +184,7 @@ def date_keyboard(today, support_id: int, category_id: int, support_index: int =
 def slots_keyboard(storage: Storage, category_id: int, support_id: int, support_index: int, date: str, user: User, hours_until, start_at) -> InlineKeyboardMarkup:
     slots = []
     for hour in storage.get_open_slots(support_id, date):
-        if start_at(date, hour) <= datetime.now():
+        if start_at(date, hour) <= local_now():
             continue
         slots.append(hour)
     rows = [[(f"🕘 {hour}:00", f"slot:{category_id}:{support_id}:{support_index}:{date}:{hour}")] for hour in slots]

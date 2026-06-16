@@ -5,20 +5,30 @@ import re
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from os import getenv
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
 def normalize_phone(phone: str | int | None) -> str:
     return re.sub(r"\D", "", str(phone or ""))
 
 
+def local_now() -> datetime:
+    timezone = getenv("TZ", "Asia/Tashkent")
+    try:
+        return datetime.now(ZoneInfo(timezone)).replace(tzinfo=None)
+    except ZoneInfoNotFoundError:
+        return datetime.now()
+
+
 def now() -> str:
-    return datetime.now().isoformat(timespec="seconds")
+    return local_now().isoformat(timespec="seconds")
 
 
 def plus_days(days: int) -> str:
-    return (datetime.now() + timedelta(days=days)).isoformat(timespec="seconds")
+    return (local_now() + timedelta(days=days)).isoformat(timespec="seconds")
 
 
 def read_json(value: str | None, fallback: Any) -> Any:
@@ -266,7 +276,7 @@ class Storage:
     def refresh_ban(self, user: User | None) -> User | None:
         if not user or not user.banned_until:
             return user
-        if datetime.fromisoformat(user.banned_until) > datetime.now():
+        if datetime.fromisoformat(user.banned_until) > local_now():
             return user
         self.db.execute(
             "UPDATE users SET no_show_count = 0, banned_until = NULL, updated_at = ? WHERE phone = ?",
@@ -742,7 +752,7 @@ class Storage:
 
     def create_booking(self, role: str, user_phone: str, support_id: int, category_id: int, date: str, start_hour: int, duration: int) -> Booking | None:
         user = self.get_user_by_phone(user_phone)
-        if user and user.banned_until and datetime.fromisoformat(user.banned_until) > datetime.now():
+        if user and user.banned_until and datetime.fromisoformat(user.banned_until) > local_now():
             return None
         hours = [start_hour + index for index in range(duration)]
         free_hours = self.get_open_slots(support_id, date)

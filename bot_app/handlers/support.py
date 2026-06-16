@@ -6,7 +6,7 @@ from aiogram import F, Router
 from aiogram.types import CallbackQuery
 
 from bot_app.config import Config
-from bot_app.database import Booking, Storage, SupportTeacher, User, schedule_template_for_date
+from bot_app.database import Booking, Storage, SupportTeacher, User, local_now, schedule_template_for_date
 from bot_app.keyboards import (
     back_to_main_keyboard,
     booking_actions_keyboard,
@@ -33,7 +33,7 @@ async def delete_callback_message(callback: CallbackQuery) -> None:
 
 
 def today(offset: int = 0) -> str:
-    return (datetime.now() + timedelta(days=offset)).date().isoformat()
+    return (local_now() + timedelta(days=offset)).date().isoformat()
 
 
 def start_at(date: str, hour: int) -> datetime:
@@ -41,7 +41,7 @@ def start_at(date: str, hour: int) -> datetime:
 
 
 def hours_until(date: str, hour: int) -> float:
-    return (start_at(date, hour) - datetime.now()).total_seconds() / 3600
+    return (start_at(date, hour) - local_now()).total_seconds() / 3600
 
 
 def current_support(callback: CallbackQuery, storage: Storage) -> tuple[User | None, SupportTeacher | None]:
@@ -58,10 +58,10 @@ def username_line(user: User | None) -> str:
 
 
 def completion_block_reason(booking: Booking) -> str | None:
-    if datetime.now().date().isoformat() != booking.date:
+    if local_now().date().isoformat() != booking.date:
         return f"⚠️ Bu darsni bugun yakunlab bo‘lmaydi.\n📅 Dars sanasi: {booking.date}"
     end_time = start_at(booking.date, booking.start_hour + booking.duration)
-    if datetime.now() < end_time:
+    if local_now() < end_time:
         return f"⚠️ Dars tugamasidan yakunlab bo‘lmaydi.\n🕘 Tugash vaqti: {booking.start_hour + booking.duration}:00"
     return None
 
@@ -187,7 +187,7 @@ async def toggle_template_slot(callback: CallbackQuery, storage: Storage) -> Non
             for booking in storage.list_bookings(support_id=support.id, status="booked")
             if schedule_template_for_date(booking.date) == template_key
             and hour_int in booking.hours
-            and start_at(booking.date, booking.start_hour) > datetime.now()
+            and start_at(booking.date, booking.start_hour) > local_now()
         ]
         for booking in affected_bookings:
             replacement, new_booking = move_booking_to_replacement(storage, booking, support.id)
@@ -224,7 +224,7 @@ async def toggle_slot(callback: CallbackQuery, storage: Storage) -> None:
             for booking in storage.list_bookings(support_id=support.id, status="booked")
             if booking.date == date
             and hour_int in booking.hours
-            and start_at(booking.date, booking.start_hour) > datetime.now()
+            and start_at(booking.date, booking.start_hour) > local_now()
         ]
         for booking in affected_bookings:
             replacement, new_booking = move_booking_to_replacement(storage, booking, support.id)
@@ -314,7 +314,7 @@ async def no_show(callback: CallbackQuery, storage: Storage, config: Config) -> 
     booking = storage.get_booking(booking_id)
     if not support or not booking or booking.support_teacher_id != support.id or not callback.message:
         return
-    if datetime.now().date().isoformat() != booking.date or datetime.now() < start_at(booking.date, booking.start_hour):
+    if local_now().date().isoformat() != booking.date or local_now() < start_at(booking.date, booking.start_hour):
         await callback.message.answer("⚠️ O‘quvchi kelmadi deb belgilash faqat dars vaqti kelgandan keyin mumkin.", reply_markup=back_to_support_bookings_keyboard())
         return
     result = storage.record_no_show(booking.id)

@@ -1,15 +1,13 @@
 from __future__ import annotations
 
 import sqlite3
-from datetime import datetime
-
 from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
 from bot_app.config import Config
-from bot_app.database import Storage
+from bot_app.database import Storage, local_now
 from bot_app.keyboards import (
     admin_flow_keyboard,
     admin_keyboard,
@@ -141,7 +139,7 @@ def support_admin_text(storage: Storage, support_id: int) -> str:
         return "⚠️ Support Teacher topilmadi."
 
     support = stats_data["support"]
-    month = datetime.now().date().isoformat()[:7]
+    month = local_now().date().isoformat()[:7]
     rating = f"{support.rating}/5 ({support.rating_count})" if support.rating_count else "Hali yo‘q"
     recent_feedback = stats_data["recent_feedback"]
     feedback_lines = [

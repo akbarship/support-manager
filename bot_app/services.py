@@ -5,7 +5,7 @@ from datetime import datetime
 
 from aiogram import Bot
 
-from bot_app.database import Storage
+from bot_app.database import Storage, local_now
 
 
 def start_at(date: str, hour: int) -> datetime:
@@ -23,7 +23,7 @@ async def reminder_loop(bot: Bot, storage: Storage) -> None:
 
 async def process_reminders(bot: Bot, storage: Storage) -> None:
     for booking in storage.list_bookings(status="booked"):
-        minutes = (start_at(booking.date, booking.start_hour) - datetime.now()).total_seconds() / 60
+        minutes = (start_at(booking.date, booking.start_hour) - local_now()).total_seconds() / 60
         learner = storage.get_user_by_phone(booking.user_phone)
         support = storage.get_support_teacher(booking.support_teacher_id)
         support_user = storage.get_user_by_phone(support.phone) if support else None

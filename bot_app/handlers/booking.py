@@ -6,7 +6,7 @@ from aiogram import F, Router
 from aiogram.types import CallbackQuery
 
 from bot_app.config import Config
-from bot_app.database import Storage, User
+from bot_app.database import Storage, User, local_now
 from bot_app.keyboards import (
     back_to_main_keyboard,
     category_keyboard,
@@ -36,7 +36,7 @@ async def delete_callback_message(callback: CallbackQuery) -> None:
 
 
 def today(offset: int = 0) -> str:
-    return (datetime.now() + timedelta(days=offset)).date().isoformat()
+    return (local_now() + timedelta(days=offset)).date().isoformat()
 
 
 def start_at(date: str, hour: int) -> datetime:
@@ -44,7 +44,7 @@ def start_at(date: str, hour: int) -> datetime:
 
 
 def hours_until(date: str, hour: int) -> float:
-    return (start_at(date, hour) - datetime.now()).total_seconds() / 3600
+    return (start_at(date, hour) - local_now()).total_seconds() / 3600
 
 
 def current_user(callback: CallbackQuery, storage: Storage) -> User | None:
@@ -174,7 +174,7 @@ async def book(callback: CallbackQuery, storage: Storage) -> None:
     user = await require_user(callback, storage)
     if not user or not callback.message:
         return
-    if user.banned_until and datetime.fromisoformat(user.banned_until) > datetime.now():
+    if user.banned_until and datetime.fromisoformat(user.banned_until) > local_now():
         await callback.message.answer(f"🚫 Siz vaqtincha band qila olmaysiz.\nBan tugaydi: {user.banned_until[:10]}", reply_markup=back_to_main_keyboard(user))
         return
     booking = storage.create_booking(user.role, user.phone, int(support_id), int(category_id), date, int(hour), int(duration))
