@@ -166,23 +166,22 @@ def support_browser_keyboard(category_id: int, index: int, count: int, support_i
     if nav:
         rows.append(nav)
     rows.extend([
-        [("✅ Tanlash", f"choose_support:{category_id}:{support_id}")],
+        [("✅ Tanlash", f"choose_support:{category_id}:{support_id}:{index}")],
         [("⬅️ Yo‘nalishlarga qaytish", "show_categories")],
-        [("🏠 Asosiy menyu", "main:menu")],
     ])
     return inline(rows)
 
 
-def date_keyboard(today, support_id: int, category_id: int) -> InlineKeyboardMarkup:
+def date_keyboard(today, support_id: int, category_id: int, support_index: int = 0) -> InlineKeyboardMarkup:
     return inline([
-        [(f"📅 Bugun {today(0)}", f"date:{category_id}:{support_id}:{today(0)}")],
-        [(f"📅 Ertaga {today(1)}", f"date:{category_id}:{support_id}:{today(1)}")],
-        [(f"📅 {today(2)}", f"date:{category_id}:{support_id}:{today(2)}")],
-        [("🏠 Asosiy menyu", "main:menu")],
+        [(f"📅 Bugun {today(0)}", f"date:{category_id}:{support_id}:{support_index}:{today(0)}")],
+        [(f"📅 Ertaga {today(1)}", f"date:{category_id}:{support_id}:{support_index}:{today(1)}")],
+        [(f"📅 {today(2)}", f"date:{category_id}:{support_id}:{support_index}:{today(2)}")],
+        [("⬅️ Support Teacherlarga qaytish", f"browse:{category_id}:{support_index}")],
     ])
 
 
-def slots_keyboard(storage: Storage, category_id: int, support_id: int, date: str, user: User, hours_until, start_at) -> InlineKeyboardMarkup:
+def slots_keyboard(storage: Storage, category_id: int, support_id: int, support_index: int, date: str, user: User, hours_until, start_at) -> InlineKeyboardMarkup:
     slots = []
     for hour in storage.get_open_slots(support_id, date):
         if user.role == "teacher" and hours_until(date, hour) < 7:
@@ -190,20 +189,22 @@ def slots_keyboard(storage: Storage, category_id: int, support_id: int, date: st
         if user.role != "teacher" and start_at(date, hour) <= datetime.now():
             continue
         slots.append(hour)
-    rows = [[(f"🕘 {hour}:00", f"slot:{category_id}:{support_id}:{date}:{hour}")] for hour in slots]
+    rows = [[(f"🕘 {hour}:00", f"slot:{category_id}:{support_id}:{support_index}:{date}:{hour}")] for hour in slots]
     if not rows:
-        rows = [[("📭 Bo‘sh vaqt yo‘q", "noop")]]
+        rows = [
+            [("📭 Bo‘sh vaqt yo‘q", "noop")],
+            [("🧑‍🏫 Boshqa Support Teacher tanlash", f"browse:{category_id}:0")],
+        ]
     rows.extend([
-        [("⬅️ Boshqa sana tanlash", f"choose_support:{category_id}:{support_id}")],
-        [("🏠 Asosiy menyu", "main:menu")],
+        [("⬅️ Boshqa sana tanlash", f"choose_support:{category_id}:{support_id}:{support_index}")],
     ])
     return inline(rows)
 
 
-def duration_keyboard(category_id: int, support_id: int, date: str, hour: int, role: str) -> InlineKeyboardMarkup:
+def duration_keyboard(category_id: int, support_id: int, support_index: int, date: str, hour: int, role: str) -> InlineKeyboardMarkup:
     max_hours = 2 if role == "teacher" else 3
-    rows = [[(f"⏱ {index + 1} soat", f"book:{category_id}:{support_id}:{date}:{hour}:{index + 1}")] for index in range(max_hours)]
-    rows.append([("🏠 Asosiy menyu", "main:menu")])
+    rows = [[(f"⏱ {index + 1} soat", f"book:{category_id}:{support_id}:{support_index}:{date}:{hour}:{index + 1}")] for index in range(max_hours)]
+    rows.append([("⬅️ Bo‘sh vaqtlarga qaytish", f"date:{category_id}:{support_id}:{support_index}:{date}")])
     return inline(rows)
 
 
@@ -222,7 +223,6 @@ def schedule_template_edit_keyboard(storage: Storage, support_id: int, template_
         for hour in working_hours()
     ]
     rows.append([("⬅️ Shablon tanlash", "support:schedule")])
-    rows.append([("🏠 Asosiy menyu", "main:menu")])
     return inline(rows)
 
 
@@ -232,7 +232,7 @@ def schedule_edit_keyboard(storage: Storage, support_id: int, date: str) -> Inli
         [(f"{'🟢 Ochiq' if hour in open_slots else '🔴 Yopiq'} {hour}:00", f"toggle_slot:{date}:{hour}")]
         for hour in working_hours()
     ]
-    rows.append([("🏠 Asosiy menyu", "main:menu")])
+    rows.append([("⬅️ Jadvalga qaytish", "support:schedule")])
     return inline(rows)
 
 
@@ -243,14 +243,14 @@ def booking_actions_keyboard(booking_id: int, is_last: bool = False) -> InlineKe
         [("✅ Yakunlandi", f"complete:{booking_id}")],
     ]
     if is_last:
-        rows.append([("🏠 Asosiy menyu", "main:menu")])
+        rows.append([("⬅️ Darslarga qaytish", "support:bookings")])
     return inline(rows)
 
 
 def learner_booking_actions_keyboard(booking_id: int, user: User, is_last: bool = False) -> InlineKeyboardMarkup:
     rows = [[("🚫 Darsni bekor qilish", f"learner_cancel:{booking_id}")]]
     if is_last:
-        rows.append([(f"🏠 {t('main_menu_button', user.language)}", "main:menu")])
+        rows.append([("⬅️ Darslarimga qaytish", "learner:bookings")])
     return inline(rows)
 
 

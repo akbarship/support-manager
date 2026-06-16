@@ -10,6 +10,7 @@ from bot_app.database import Booking, Storage, SupportTeacher, User, schedule_te
 from bot_app.keyboards import (
     back_to_main_keyboard,
     booking_actions_keyboard,
+    inline,
     rating_keyboard,
     schedule_edit_keyboard,
     schedule_template_edit_keyboard,
@@ -17,6 +18,10 @@ from bot_app.keyboards import (
 )
 
 router = Router()
+
+
+def back_to_support_bookings_keyboard():
+    return inline([[("⬅️ Darslarga qaytish", "support:bookings")]])
 
 
 async def delete_callback_message(callback: CallbackQuery) -> None:
@@ -288,15 +293,15 @@ async def support_cancel(callback: CallbackQuery, storage: Storage) -> None:
     if not support or not booking or booking.support_teacher_id != support.id or not callback.message:
         return
     if hours_until(booking.date, booking.start_hour) < 4:
-        await callback.message.answer("⏳ Darsni kamida 4 soat oldin bekor qilish mumkin.", reply_markup=back_to_main_keyboard({"role": "support_teacher"}))
+        await callback.message.answer("⏳ Darsni kamida 4 soat oldin bekor qilish mumkin.", reply_markup=back_to_support_bookings_keyboard())
         return
     replacement, new_booking = move_booking_to_replacement(storage, booking, support.id)
     if replacement and new_booking:
-        await callback.message.answer(f"✅ Dars bekor qilindi. O‘rniga {replacement.name} {replacement.surname} biriktirildi.", reply_markup=back_to_main_keyboard({"role": "support_teacher"}))
+        await callback.message.answer(f"✅ Dars bekor qilindi. O‘rniga {replacement.name} {replacement.surname} biriktirildi.", reply_markup=back_to_support_bookings_keyboard())
         await notify_reassigned_booking(callback, storage, booking, replacement, new_booking)
         return
 
-    await callback.message.answer(f"✅ Dars #{booking.id} bekor qilindi. Bo‘sh Support Teacher topilmadi.", reply_markup=back_to_main_keyboard({"role": "support_teacher"}))
+    await callback.message.answer(f"✅ Dars #{booking.id} bekor qilindi. Bo‘sh Support Teacher topilmadi.", reply_markup=back_to_support_bookings_keyboard())
     await notify_reassigned_booking(callback, storage, booking, replacement, new_booking)
 
 
@@ -310,7 +315,7 @@ async def no_show(callback: CallbackQuery, storage: Storage, config: Config) -> 
     if not support or not booking or booking.support_teacher_id != support.id or not callback.message:
         return
     if datetime.now().date().isoformat() != booking.date or datetime.now() < start_at(booking.date, booking.start_hour):
-        await callback.message.answer("⚠️ O‘quvchi kelmadi deb belgilash faqat dars vaqti kelgandan keyin mumkin.", reply_markup=back_to_main_keyboard({"role": "support_teacher"}))
+        await callback.message.answer("⚠️ O‘quvchi kelmadi deb belgilash faqat dars vaqti kelgandan keyin mumkin.", reply_markup=back_to_support_bookings_keyboard())
         return
     result = storage.record_no_show(booking.id)
     if not result:
@@ -340,7 +345,7 @@ async def no_show(callback: CallbackQuery, storage: Storage, config: Config) -> 
     )
     await callback.message.answer(
         "🚫 O‘quvchi 2 haftaga ban qilindi." if banned_until else f"⚠️ Ogohlantirish berildi: {count}/3",
-        reply_markup=back_to_main_keyboard({"role": "support_teacher"}),
+        reply_markup=back_to_support_bookings_keyboard(),
     )
 
 
@@ -355,10 +360,10 @@ async def complete(callback: CallbackQuery, storage: Storage) -> None:
         return
     block_reason = completion_block_reason(booking)
     if block_reason:
-        await callback.message.answer(block_reason, reply_markup=back_to_main_keyboard({"role": "support_teacher"}))
+        await callback.message.answer(block_reason, reply_markup=back_to_support_bookings_keyboard())
         return
     storage.complete_booking(booking.id)
     learner = storage.get_user_by_phone(booking.user_phone)
     if learner and learner.chat_id:
         await callback.bot.send_message(learner.chat_id, f"⭐ Dars #{booking.id} uchun baho bering.", reply_markup=rating_keyboard(booking.id))
-    await callback.message.answer(f"✅ Dars #{booking.id} yakunlandi.", reply_markup=back_to_main_keyboard({"role": "support_teacher"}))
+    await callback.message.answer(f"✅ Dars #{booking.id} yakunlandi.", reply_markup=back_to_support_bookings_keyboard())
