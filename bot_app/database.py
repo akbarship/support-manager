@@ -766,6 +766,8 @@ class Storage:
         return {"ok": True}
 
     def create_booking(self, role: str, user_phone: str, support_id: int, category_id: int, date: str, start_hour: int, duration: int) -> Booking | None:
+        if duration != 1:
+            return None
         user = self.get_user_by_phone(user_phone)
         if user and user.banned_until and datetime.fromisoformat(user.banned_until) > local_now():
             return None

@@ -201,7 +201,7 @@ def slots_keyboard(storage: Storage, category_id: int, support_id: int, support_
 
 
 def duration_keyboard(category_id: int, support_id: int, support_index: int, date: str, hour: int) -> InlineKeyboardMarkup:
-    rows = [[(f"⏱ {index + 1} soat", f"book:{category_id}:{support_id}:{support_index}:{date}:{hour}:{index + 1}")] for index in range(3)]
+    rows = [[("⏱ 1 soat", f"book:{category_id}:{support_id}:{support_index}:{date}:{hour}:1")]]
     rows.append([("⬅️ Bo‘sh vaqtlarga qaytish", f"date:{category_id}:{support_id}:{support_index}:{date}")])
     return inline(rows)
 

@@ -135,6 +135,26 @@ class StorageTest(unittest.TestCase):
         duplicate = self.storage.create_booking("student", student.phone, support.id, category.id, "2099-01-01", 10, 1)
         self.assertIsNone(duplicate)
 
+    def test_allows_only_one_hour_bookings(self):
+        category = self.storage.create_category("IELTS Support")
+        support = self.storage.create_support_teacher({
+            "phone": "+998901234567",
+            "name": "Sardor",
+            "surname": "Rahimov",
+            "categories": [category.id],
+        })
+        student = self.storage.upsert_allowed_user("+998907777777", "student", "Aziz", "Karimov")
+
+        self.assertIsNone(
+            self.storage.create_booking("student", student.phone, support.id, category.id, "2099-01-01", 10, 2)
+        )
+        self.assertIsNone(
+            self.storage.create_booking("student", student.phone, support.id, category.id, "2099-01-01", 10, 3)
+        )
+        self.assertIsNotNone(
+            self.storage.create_booking("student", student.phone, support.id, category.id, "2099-01-01", 10, 1)
+        )
+
     def test_odd_even_schedule_templates_control_open_slots(self):
         category, support, student, _ = self.seed()
         self.assertTrue(self.storage.set_template_slot_open(support.id, "odd", 9, False)["ok"])
