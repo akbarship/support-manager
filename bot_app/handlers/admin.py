@@ -128,6 +128,7 @@ def student_admin_text(storage: Storage, phone: str) -> str:
     ban_line = f"🚫 Ban tugaydi: {user.banned_until[:10]}" if user.banned_until else "✅ Ban yo‘q"
     upcoming_lines = [
         f"  {booking.date} {booking.start_hour}:00 ({booking.duration} soat)"
+        + (f" — {booking.topic}" if booking.topic else "")
         for booking in stats_data["upcoming"]
     ] or ["  Aktiv dars yo‘q"]
     return "\n".join([
@@ -173,6 +174,7 @@ def support_admin_text(storage: Storage, support_id: int) -> str:
     ] or ["  Hali yo‘q"]
     upcoming_lines = [
         f"  {booking.date} {booking.start_hour}:00 ({booking.duration} soat)"
+        + (f" — {booking.topic}" if booking.topic else "")
         for booking in stats_data["upcoming"]
     ] or ["  Aktiv dars yo‘q"]
 

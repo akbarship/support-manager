@@ -102,6 +102,7 @@ class Booking:
     start_hour: int
     duration: int
     hours: list[int]
+    topic: str
     status: str
     reminded20: bool
     reminded5: bool
@@ -180,6 +181,7 @@ class Storage:
               start_hour INTEGER NOT NULL,
               duration INTEGER NOT NULL,
               hours_json TEXT NOT NULL,
+              topic TEXT NOT NULL DEFAULT '',
               status TEXT NOT NULL,
               reminded20 INTEGER NOT NULL DEFAULT 0,
               reminded5 INTEGER NOT NULL DEFAULT 0,
@@ -205,6 +207,7 @@ class Storage:
             """
         )
         self._ensure_column("users", "language", "TEXT NOT NULL DEFAULT 'uz'")
+        self._ensure_column("bookings", "topic", "TEXT NOT NULL DEFAULT ''")
         self.db.execute("UPDATE users SET role = 'student', updated_at = ? WHERE role = 'teacher'", (now(),))
         self.db.commit()
 
@@ -266,6 +269,7 @@ class Storage:
             start_hour=row["start_hour"],
             duration=row["duration"],
             hours=read_json(row["hours_json"], []),
+            topic=row["topic"] or "",
             status=row["status"],
             reminded20=bool(row["reminded20"]),
             reminded5=bool(row["reminded5"]),
@@ -765,7 +769,17 @@ class Storage:
         self.db.commit()
         return {"ok": True}
 
-    def create_booking(self, role: str, user_phone: str, support_id: int, category_id: int, date: str, start_hour: int, duration: int) -> Booking | None:
+    def create_booking(
+        self,
+        role: str,
+        user_phone: str,
+        support_id: int,
+        category_id: int,
+        date: str,
+        start_hour: int,
+        duration: int,
+        topic: str = "",
+    ) -> Booking | None:
         if duration != 1:
             return None
         user = self.get_user_by_phone(user_phone)
@@ -779,12 +793,23 @@ class Storage:
             """
             INSERT INTO bookings (
               role, user_phone, support_teacher_id, category_id, lesson_date, start_hour,
-              duration, hours_json, status, reminded20, reminded5, feedback_requested,
+              duration, hours_json, topic, status, reminded20, reminded5, feedback_requested,
               feedback_given, created_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'booked', 0, 0, 0, 0, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'booked', 0, 0, 0, 0, ?)
             """,
-            (role, normalize_phone(user_phone), support_id, category_id, date, start_hour, duration, write_json(hours), now()),
+            (
+                role,
+                normalize_phone(user_phone),
+                support_id,
+                category_id,
+                date,
+                start_hour,
+                duration,
+                write_json(hours),
+                topic.strip(),
+                now(),
+            ),
         )
         self.db.commit()
         return self.get_booking(cursor.lastrowid)

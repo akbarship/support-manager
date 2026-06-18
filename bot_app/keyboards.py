@@ -201,7 +201,7 @@ def slots_keyboard(storage: Storage, category_id: int, support_id: int, support_
 
 
 def duration_keyboard(category_id: int, support_id: int, support_index: int, date: str, hour: int) -> InlineKeyboardMarkup:
-    rows = [[("⏱ 1 soat", f"book:{category_id}:{support_id}:{support_index}:{date}:{hour}:1")]]
+    rows = [[("✅ Davom etish — 1 soat", f"book:{category_id}:{support_id}:{support_index}:{date}:{hour}:1")]]
     rows.append([("⬅️ Bo‘sh vaqtlarga qaytish", f"date:{category_id}:{support_id}:{support_index}:{date}")])
     return inline(rows)
 
@@ -241,14 +241,14 @@ def booking_actions_keyboard(booking_id: int, is_last: bool = False) -> InlineKe
         [("✅ Yakunlandi", f"complete:{booking_id}")],
     ]
     if is_last:
-        rows.append([("⬅️ Darslarga qaytish", "support:bookings")])
+        rows.append([("🏠 Asosiy menyu", "main:menu")])
     return inline(rows)
 
 
 def learner_booking_actions_keyboard(booking_id: int, user: User, is_last: bool = False) -> InlineKeyboardMarkup:
     rows = [[("🚫 Darsni bekor qilish", f"learner_cancel:{booking_id}")]]
     if is_last:
-        rows.append([("⬅️ Darslarimga qaytish", "learner:bookings")])
+        rows.append([("🏠 Asosiy menyu", "main:menu")])
     return inline(rows)
 
 

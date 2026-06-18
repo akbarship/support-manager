@@ -40,3 +40,7 @@ class Broadcast(StatesGroup):
 
 class StudentSearch(StatesGroup):
     query = State()
+
+
+class LessonBooking(StatesGroup):
+    topic = State()

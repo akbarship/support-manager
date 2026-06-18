@@ -155,6 +155,30 @@ class StorageTest(unittest.TestCase):
             self.storage.create_booking("student", student.phone, support.id, category.id, "2099-01-01", 10, 1)
         )
 
+    def test_stores_lesson_topic(self):
+        category = self.storage.create_category("Grammar Support")
+        support = self.storage.create_support_teacher({
+            "phone": "+998901234567",
+            "name": "Sardor",
+            "surname": "Rahimov",
+            "categories": [category.id],
+        })
+        student = self.storage.upsert_allowed_user("+998907777777", "student", "Aziz", "Karimov")
+
+        booking = self.storage.create_booking(
+            "student",
+            student.phone,
+            support.id,
+            category.id,
+            "2099-01-01",
+            10,
+            1,
+            "Present Perfect va Past Simple farqi",
+        )
+
+        self.assertIsNotNone(booking)
+        self.assertEqual(booking.topic, "Present Perfect va Past Simple farqi")
+
     def test_odd_even_schedule_templates_control_open_slots(self):
         category, support, student, _ = self.seed()
         self.assertTrue(self.storage.set_template_slot_open(support.id, "odd", 9, False)["ok"])

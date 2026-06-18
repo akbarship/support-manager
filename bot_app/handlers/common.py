@@ -90,9 +90,18 @@ async def handle_phone_text(message: Message, storage: Storage, state: FSMContex
 
 
 @router.callback_query(F.data == "main:menu")
-async def main_menu_callback(callback: CallbackQuery, storage: Storage) -> None:
+async def main_menu_callback(callback: CallbackQuery, storage: Storage, state: FSMContext) -> None:
     await callback.answer()
+    await state.clear()
     await delete_callback_message(callback)
+    if callback.message:
+        await show_main_menu(callback.message, storage, callback.from_user.id)
+
+
+@router.callback_query(F.data == "main:menu_keep")
+async def main_menu_keep_callback(callback: CallbackQuery, storage: Storage, state: FSMContext) -> None:
+    await callback.answer()
+    await state.clear()
     if callback.message:
         await show_main_menu(callback.message, storage, callback.from_user.id)
 

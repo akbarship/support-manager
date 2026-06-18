@@ -3,7 +3,8 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 
 from aiogram import F, Router
-from aiogram.types import CallbackQuery
+from aiogram.fsm.context import FSMContext
+from aiogram.types import CallbackQuery, Message
 
 from bot_app.config import Config
 from bot_app.database import Storage, User, local_now
@@ -14,7 +15,6 @@ from bot_app.keyboards import (
     date_keyboard,
     duration_keyboard,
     inline,
-    learner_booking_actions_keyboard,
     rating_keyboard,
     slots_keyboard,
     support_browser_keyboard,
@@ -22,6 +22,7 @@ from bot_app.keyboards import (
     support_keyboard,
     language_keyboard,
 )
+from bot_app.states import LessonBooking
 from bot_app.texts import t, title
 
 router = Router()
@@ -124,9 +125,10 @@ async def choose_support(callback: CallbackQuery) -> None:
 
 
 @router.callback_query(F.data.startswith("date:"))
-async def choose_date(callback: CallbackQuery, storage: Storage) -> None:
+async def choose_date(callback: CallbackQuery, storage: Storage, state: FSMContext) -> None:
     await callback.answer()
     await delete_callback_message(callback)
+    await state.clear()
     parts = callback.data.split(":")
     if len(parts) == 5:
         _, category_id, support_id, support_index, date = parts
@@ -156,13 +158,13 @@ async def choose_slot(callback: CallbackQuery, storage: Storage) -> None:
     if not user or not callback.message:
         return
     await callback.message.answer(
-        title("⏱ Davomiylik", "Dars necha soat bo‘ladi?"),
+        title("⏱ Davomiylik", "Dars davomiyligi 1 soat."),
         reply_markup=duration_keyboard(int(category_id), int(support_id), int(support_index), date, int(hour)),
     )
 
 
 @router.callback_query(F.data.startswith("book:"))
-async def book(callback: CallbackQuery, storage: Storage) -> None:
+async def book(callback: CallbackQuery, storage: Storage, state: FSMContext) -> None:
     await callback.answer()
     await delete_callback_message(callback)
     parts = callback.data.split(":")
@@ -177,21 +179,81 @@ async def book(callback: CallbackQuery, storage: Storage) -> None:
     if user.banned_until and datetime.fromisoformat(user.banned_until) > local_now():
         await callback.message.answer(f"🚫 Siz vaqtincha band qila olmaysiz.\nBan tugaydi: {user.banned_until[:10]}", reply_markup=back_to_main_keyboard(user))
         return
-    booking = storage.create_booking(user.role, user.phone, int(support_id), int(category_id), date, int(hour), int(duration))
+    await state.set_state(LessonBooking.topic)
+    await state.update_data(
+        category_id=int(category_id),
+        support_id=int(support_id),
+        support_index=int(support_index),
+        date=date,
+        hour=int(hour),
+        duration=int(duration),
+    )
+    await callback.message.answer(
+        title("📝 Dars mavzusi", "Support Teacherdan nimani o‘rganmoqchi ekaningizni yozing."),
+        reply_markup=inline([
+            [("⬅️ Bo‘sh vaqtlarga qaytish", f"date:{category_id}:{support_id}:{support_index}:{date}")],
+            [("❌ Bekor qilish", "main:menu")],
+        ]),
+    )
+
+
+@router.message(LessonBooking.topic)
+async def save_booking_topic(message: Message, storage: Storage, state: FSMContext) -> None:
+    topic = (message.text or "").strip()
+    if len(topic) < 3:
+        await message.answer("⚠️ Dars mavzusini kamida 3 ta belgi bilan yozing.")
+        return
+    if len(topic) > 500:
+        await message.answer("⚠️ Dars mavzusi 500 ta belgidan oshmasligi kerak.")
+        return
+    if not message.from_user:
+        return
+    user = storage.get_user_by_telegram_id(message.from_user.id)
+    if not user:
+        await state.clear()
+        await message.answer(t("choose_language", "uz"), reply_markup=language_keyboard())
+        return
+    if user.banned_until and datetime.fromisoformat(user.banned_until) > local_now():
+        await state.clear()
+        await message.answer(
+            f"🚫 Siz vaqtincha band qila olmaysiz.\nBan tugaydi: {user.banned_until[:10]}",
+            reply_markup=back_to_main_keyboard(user),
+        )
+        return
+    data = await state.get_data()
+    category_id = int(data["category_id"])
+    support_id = int(data["support_id"])
+    support_index = int(data["support_index"])
+    date = data["date"]
+    hour = int(data["hour"])
+    duration = int(data["duration"])
+    booking = storage.create_booking(
+        user.role,
+        user.phone,
+        support_id,
+        category_id,
+        date,
+        hour,
+        duration,
+        topic,
+    )
     if not booking:
-        await callback.message.answer(
+        await state.clear()
+        await message.answer(
             "⚠️ Bu vaqt band yoki mavjud emas.",
             reply_markup=inline([[("⬅️ Bo‘sh vaqtlarga qaytish", f"date:{category_id}:{support_id}:{support_index}:{date}")]]),
         )
         return
-    support = storage.get_support_teacher(int(support_id))
+    await state.clear()
+    support = storage.get_support_teacher(support_id)
     support_user = storage.get_user_by_phone(support.phone) if support else None
-    await callback.message.answer(
+    await message.answer(
         "\n".join(filter(None, [
             f"✅ {t('booked', user.language)}",
             f"📅 {date}",
             f"🕘 {hour}:00",
             f"⏱ {duration} soat",
+            f"📝 Mavzu: {topic}",
             f"🧑‍🏫 Support Teacher: {support.name} {support.surname}" if support else "",
             f"📱 Telefon: {support.phone}" if support else "",
             username_line(support_user),
@@ -199,13 +261,14 @@ async def book(callback: CallbackQuery, storage: Storage) -> None:
         reply_markup=back_to_main_keyboard(user),
     )
     if support_user and support_user.chat_id:
-        await callback.bot.send_message(
+        await message.bot.send_message(
             support_user.chat_id,
             "\n".join(filter(None, [
                 "📚 Yangi dars",
                 f"📅 {date}",
                 f"🕘 {hour}:00",
                 f"⏱ {duration} soat",
+                f"📝 Mavzu: {topic}",
                 f"👤 {user.name} {user.surname}",
                 f"📱 Telefon: {user.phone}",
                 username_line(user),
@@ -228,16 +291,21 @@ async def learner_bookings(callback: CallbackQuery, storage: Storage) -> None:
     visible = bookings[:10]
     for index, booking in enumerate(visible):
         support = storage.get_support_teacher(booking.support_teacher_id)
+        is_last = index == len(visible) - 1
         await callback.message.answer(
             "\n".join(filter(None, [
                 "📚 Dars",
                 f"📅 {booking.date}",
                 f"🕘 {booking.start_hour}:00 ({booking.duration} soat)",
+                f"📝 Mavzu: {booking.topic}" if booking.topic else "",
                 f"🧑‍🏫 Support Teacher: {support.name if support else ''} {support.surname if support else ''}",
                 f"📱 Telefon: {support.phone if support else ''}",
                 username_line(storage.get_user_by_phone(support.phone) if support else None),
             ])),
-            reply_markup=learner_booking_actions_keyboard(booking.id, user, index == len(visible) - 1),
+            reply_markup=inline([
+                [("🚫 Darsni bekor qilish", f"learner_cancel:{booking.id}")],
+                *([[("🏠 Asosiy menyu", "main:menu_keep")]] if is_last else []),
+            ]),
         )
 
 
@@ -276,6 +344,7 @@ async def learner_cancel(callback: CallbackQuery, storage: Storage) -> None:
                 "🚫 Dars bekor qilindi",
                 f"📅 {booking.date}",
                 f"🕘 {booking.start_hour}:00 ({booking.duration} soat)",
+                f"📝 Mavzu: {booking.topic}" if booking.topic else "",
                 f"👤 {user.name} {user.surname}",
                 f"📱 Telefon: {user.phone}",
                 username_line(user),

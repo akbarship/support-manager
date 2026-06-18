@@ -9,7 +9,6 @@ from bot_app.config import Config
 from bot_app.database import Booking, Storage, SupportTeacher, User, local_now, schedule_template_for_date
 from bot_app.keyboards import (
     back_to_main_keyboard,
-    booking_actions_keyboard,
     inline,
     rating_keyboard,
     schedule_edit_keyboard,
@@ -21,7 +20,7 @@ router = Router()
 
 
 def back_to_support_bookings_keyboard():
-    return inline([[("⬅️ Darslarga qaytish", "support:bookings")]])
+    return inline([[("🏠 Asosiy menyu", "main:menu")]])
 
 
 async def delete_callback_message(callback: CallbackQuery) -> None:
@@ -99,6 +98,7 @@ def move_booking_to_replacement(storage: Storage, booking: Booking, old_support_
         booking.date,
         booking.start_hour,
         booking.duration,
+        booking.topic,
     )
     return replacement, new_booking
 
@@ -115,6 +115,7 @@ async def notify_reassigned_booking(callback: CallbackQuery, storage: Storage, o
                     "📚 Yangi dars",
                     f"📅 {old_booking.date}",
                     f"🕘 {old_booking.start_hour}:00 ({old_booking.duration} soat)",
+                    f"📝 Mavzu: {old_booking.topic}" if old_booking.topic else "",
                     f"🧑‍🏫 {replacement.name} {replacement.surname}",
                     f"📱 Telefon: {replacement.phone}",
                     username_line(replacement_user),
@@ -127,6 +128,7 @@ async def notify_reassigned_booking(callback: CallbackQuery, storage: Storage, o
                     "📚 Sizga yangi dars biriktirildi",
                     f"📅 {old_booking.date}",
                     f"🕘 {old_booking.start_hour}:00 ({old_booking.duration} soat)",
+                    f"📝 Mavzu: {old_booking.topic}" if old_booking.topic else "",
                     f"👤 {learner.name if learner else ''} {learner.surname if learner else ''}",
                     f"📱 Telefon: {learner.phone if learner else old_booking.user_phone}",
                     username_line(learner),
@@ -253,14 +255,21 @@ async def support_bookings(callback: CallbackQuery, storage: Storage) -> None:
     visible = bookings[:10]
     for index, booking in enumerate(visible):
         user = storage.get_user_by_phone(booking.user_phone)
+        is_last = index == len(visible) - 1
         await callback.message.answer(
             "\n".join([
                 "📚 Dars",
                 f"📅 {booking.date}",
                 f"🕘 {booking.start_hour}:00 ({booking.duration} soat)",
+                f"📝 Mavzu: {booking.topic}" if booking.topic else "",
                 f"👤 {user.name if user else ''} {user.surname if user else ''}",
             ]),
-            reply_markup=booking_actions_keyboard(booking.id, index == len(visible) - 1),
+            reply_markup=inline([
+                [("🚫 Bekor qilish", f"support_cancel:{booking.id}")],
+                [("👤 O‘quvchi kelmadi", f"no_show:{booking.id}")],
+                [("✅ Yakunlandi", f"complete:{booking.id}")],
+                *([[("🏠 Asosiy menyu", "main:menu_keep")]] if is_last else []),
+            ]),
         )
 
 
