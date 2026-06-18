@@ -7,7 +7,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
 from bot_app.config import Config
-from bot_app.database import Storage, local_now
+from bot_app.database import Storage, User, local_now
 from bot_app.keyboards import (
     admin_flow_keyboard,
     admin_keyboard,
@@ -16,10 +16,11 @@ from bot_app.keyboards import (
     inline,
     support_category_keyboard,
 )
-from bot_app.states import AddAdmin, AddSupportTeacher, Broadcast, CreateCategory, EditCategory, EditSupportTeacher
+from bot_app.states import AddAdmin, AddSupportTeacher, Broadcast, CreateCategory, EditCategory, EditSupportTeacher, StudentSearch
 from bot_app.texts import ROLE_LABELS, title
 
 router = Router()
+PAGE_SIZE = 8
 
 
 def is_admin(user_id: int | None, config: Config, storage: Storage | None = None) -> bool:
@@ -76,21 +77,45 @@ def managed_admin_rows(storage: Storage) -> list[list[tuple[str, str]]]:
     return rows
 
 
-def managed_support_rows(storage: Storage) -> list[list[tuple[str, str]]]:
+def pagination_row(prefix: str, page: int, total: int) -> list[tuple[str, str]]:
+    pages = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
+    row: list[tuple[str, str]] = []
+    if page > 0:
+        row.append(("⬅️", f"{prefix}:{page - 1}"))
+    row.append((f"{page + 1}/{pages}", "noop"))
+    if page + 1 < pages:
+        row.append(("➡️", f"{prefix}:{page + 1}"))
+    return row
+
+
+def managed_support_rows(storage: Storage, page: int = 0) -> list[list[tuple[str, str]]]:
+    supports = storage.list_support_teachers()
+    pages = max(1, (len(supports) + PAGE_SIZE - 1) // PAGE_SIZE)
+    page = max(0, min(page, pages - 1))
     rows = [[("➕ Support Teacher qo‘shish", "admin:add_support")]]
-    for support in storage.list_support_teachers():
+    for support in supports[page * PAGE_SIZE:(page + 1) * PAGE_SIZE]:
         rating = f"{support.rating}/5" if support.rating_count else "baho yo‘q"
-        rows.append([(f"#{support.id} {support.name} {support.surname} | {rating}", f"support_admin:open:{support.id}")])
+        rows.append([(f"{support.name} {support.surname} | {rating}", f"support_admin:open:{support.id}")])
+    rows.append(pagination_row("admin:supports_page", page, len(supports)))
     rows.append([("🏠 Admin menyu", "admin:menu")])
     return rows
 
 
-def managed_student_rows(storage: Storage) -> list[list[tuple[str, str]]]:
-    rows: list[list[tuple[str, str]]] = []
-    for student in storage.list_students():
+def managed_student_rows(
+    storage: Storage,
+    page: int = 0,
+    students: list[User] | None = None,
+    prefix: str = "admin:students_page",
+) -> list[list[tuple[str, str]]]:
+    students = storage.list_students() if students is None else students
+    pages = max(1, (len(students) + PAGE_SIZE - 1) // PAGE_SIZE)
+    page = max(0, min(page, pages - 1))
+    rows: list[list[tuple[str, str]]] = [[("🔎 O‘quvchi qidirish", "admin:student_search")]]
+    for student in students[page * PAGE_SIZE:(page + 1) * PAGE_SIZE]:
         name = f"{student.name} {student.surname}".strip()
         status = "🚫 Ban" if student.banned_until else "✅ Aktiv"
         rows.append([(f"{status} {name or student.phone} | {student.phone}", f"student_admin:open:{student.phone}")])
+    rows.append(pagination_row(prefix, page, len(students)))
     rows.append([("🏠 Admin menyu", "admin:menu")])
     return rows
 
@@ -102,7 +127,7 @@ def student_admin_text(storage: Storage, phone: str) -> str:
     user = stats_data["user"]
     ban_line = f"🚫 Ban tugaydi: {user.banned_until[:10]}" if user.banned_until else "✅ Ban yo‘q"
     upcoming_lines = [
-        f"  #{booking.id} | {booking.date} {booking.start_hour}:00 ({booking.duration} soat)"
+        f"  {booking.date} {booking.start_hour}:00 ({booking.duration} soat)"
         for booking in stats_data["upcoming"]
     ] or ["  Aktiv dars yo‘q"]
     return "\n".join([
@@ -143,16 +168,16 @@ def support_admin_text(storage: Storage, support_id: int) -> str:
     rating = f"{support.rating}/5 ({support.rating_count})" if support.rating_count else "Hali yo‘q"
     recent_feedback = stats_data["recent_feedback"]
     feedback_lines = [
-        f"  #{item['booking_id']} | {item['lesson_date']} | {item['rating']}/5"
+        f"  {item['lesson_date']} | {item['rating']}/5"
         for item in recent_feedback
     ] or ["  Hali yo‘q"]
     upcoming_lines = [
-        f"  #{booking.id} | {booking.date} {booking.start_hour}:00 ({booking.duration} soat)"
+        f"  {booking.date} {booking.start_hour}:00 ({booking.duration} soat)"
         for booking in stats_data["upcoming"]
     ] or ["  Aktiv dars yo‘q"]
 
     return "\n".join([
-        f"🧑‍🏫 #{support.id} {support.name} {support.surname}",
+        f"🧑‍🏫 {support.name} {support.surname}",
         f"📱 {support.phone}",
         f"🎧 IELTS: {support.ielts or '-'}",
         f"📖 CEFR: {support.cefr or '-'}",
@@ -211,6 +236,54 @@ async def admin_back(callback: CallbackQuery, config: Config, state: FSMContext,
     await delete_callback_message(callback)
     if callback.message and is_admin(callback.from_user.id, config, storage):
         await callback.message.answer("👑 Admin panel", reply_markup=admin_keyboard())
+
+
+@router.callback_query(F.data == "admin:reset_lessons")
+async def reset_lessons_first_confirmation(callback: CallbackQuery, config: Config, storage: Storage) -> None:
+    await callback.answer()
+    await delete_callback_message(callback)
+    if not callback.message or not is_admin(callback.from_user.id, config, storage):
+        return
+    active_count = len(storage.list_bookings(status="booked"))
+    await callback.message.answer(
+        "\n".join([
+            "⚠️ Barcha aktiv darslar bekor qilinadi.",
+            f"Aktiv darslar: {active_count}",
+            "Davom etasizmi?",
+        ]),
+        reply_markup=inline([
+            [("Davom etish", "admin:reset_lessons_confirm")],
+            [("❌ Bekor qilish", "admin:menu")],
+        ]),
+    )
+
+
+@router.callback_query(F.data == "admin:reset_lessons_confirm")
+async def reset_lessons_second_confirmation(callback: CallbackQuery, config: Config, storage: Storage) -> None:
+    await callback.answer()
+    await delete_callback_message(callback)
+    if not callback.message or not is_admin(callback.from_user.id, config, storage):
+        return
+    await callback.message.answer(
+        "🚨 Oxirgi tasdiqlash\nBu amal barcha aktiv darslarni darhol bekor qiladi.",
+        reply_markup=inline([
+            [("✅ Ha, barchasini bekor qilish", "admin:reset_lessons_execute")],
+            [("❌ Yo‘q", "admin:menu")],
+        ]),
+    )
+
+
+@router.callback_query(F.data == "admin:reset_lessons_execute")
+async def reset_lessons_execute(callback: CallbackQuery, config: Config, storage: Storage) -> None:
+    await callback.answer()
+    await delete_callback_message(callback)
+    if not callback.message or not is_admin(callback.from_user.id, config, storage):
+        return
+    cancelled = storage.cancel_all_bookings()
+    await callback.message.answer(
+        f"✅ {cancelled} ta aktiv dars bekor qilindi.",
+        reply_markup=admin_keyboard(),
+    )
 
 
 @router.callback_query(F.data == "admin:admins")
@@ -448,7 +521,7 @@ async def finish_support_teacher(callback: CallbackQuery, state: FSMContext, sto
         return
     await state.clear()
     if callback.message:
-        await callback.message.answer(f"✅ Support Teacher qo‘shildi\n#{support.id} {support.name} {support.surname}", reply_markup=back_to_main_keyboard({"role": "admin"}))
+        await callback.message.answer(f"✅ Support Teacher qo‘shildi\n{support.name} {support.surname}", reply_markup=back_to_main_keyboard({"role": "admin"}))
 
 
 @router.callback_query(F.data == "admin:students")
@@ -460,6 +533,67 @@ async def students(callback: CallbackQuery, config: Config, storage: Storage) ->
     await callback.message.answer(
         title("🎓 O‘quvchilar", "O‘quvchini tanlang: ban, unban yoki o‘chirish."),
         reply_markup=inline(managed_student_rows(storage)),
+    )
+
+
+@router.callback_query(F.data.startswith("admin:students_page:"))
+async def students_page(callback: CallbackQuery, config: Config, storage: Storage) -> None:
+    await callback.answer()
+    await delete_callback_message(callback)
+    if not callback.message or not is_admin(callback.from_user.id, config, storage):
+        return
+    page = int(callback.data.rsplit(":", 1)[1])
+    await callback.message.answer(
+        title("🎓 O‘quvchilar", "O‘quvchini tanlang: ban, unban yoki o‘chirish."),
+        reply_markup=inline(managed_student_rows(storage, page)),
+    )
+
+
+@router.callback_query(F.data == "admin:student_search")
+async def student_search_start(callback: CallbackQuery, config: Config, state: FSMContext, storage: Storage) -> None:
+    await callback.answer()
+    await delete_callback_message(callback)
+    if not callback.message or not is_admin(callback.from_user.id, config, storage):
+        return
+    await state.set_state(StudentSearch.query)
+    await admin_prompt(
+        callback.message,
+        state,
+        title("🔎 O‘quvchi qidirish", "Telefon raqam, ism yoki username kiriting."),
+        "query",
+    )
+
+
+@router.message(StudentSearch.query)
+async def student_search_result(message: Message, config: Config, state: FSMContext, storage: Storage) -> None:
+    if not is_admin(message.from_user.id if message.from_user else None, config, storage):
+        await state.clear()
+        return
+    query = (message.text or "").strip()
+    if not query:
+        await admin_prompt(message, state, "⚠️ Qidiruv so‘zini kiriting.", "query")
+        return
+    await state.update_data(query=query)
+    results = storage.search_students(query)
+    await message.answer(
+        title("🔎 Qidiruv natijalari", f"“{query}” bo‘yicha {len(results)} ta o‘quvchi topildi."),
+        reply_markup=inline(managed_student_rows(storage, students=results, prefix="admin:student_search_page")),
+    )
+
+
+@router.callback_query(F.data.startswith("admin:student_search_page:"))
+async def student_search_page(callback: CallbackQuery, config: Config, state: FSMContext, storage: Storage) -> None:
+    await callback.answer()
+    await delete_callback_message(callback)
+    if not callback.message or not is_admin(callback.from_user.id, config, storage):
+        return
+    data = await state.get_data()
+    query = data.get("query", "")
+    results = storage.search_students(query) if query else []
+    page = int(callback.data.rsplit(":", 1)[1])
+    await callback.message.answer(
+        title("🔎 Qidiruv natijalari", f"“{query}” bo‘yicha {len(results)} ta o‘quvchi topildi."),
+        reply_markup=inline(managed_student_rows(storage, page, results, "admin:student_search_page")),
     )
 
 
@@ -596,6 +730,19 @@ async def support_teachers(callback: CallbackQuery, config: Config, storage: Sto
     )
 
 
+@router.callback_query(F.data.startswith("admin:supports_page:"))
+async def support_teachers_page(callback: CallbackQuery, config: Config, storage: Storage) -> None:
+    await callback.answer()
+    await delete_callback_message(callback)
+    if not callback.message or not is_admin(callback.from_user.id, config, storage):
+        return
+    page = int(callback.data.rsplit(":", 1)[1])
+    await callback.message.answer(
+        title("🧑‍🏫 Support Teacherlar", "Tanlang: statistika, tahrirlash yoki o‘chirish."),
+        reply_markup=inline(managed_support_rows(storage, page)),
+    )
+
+
 @router.callback_query(F.data.startswith("support_admin:open:"))
 async def open_support_teacher(callback: CallbackQuery, config: Config, storage: Storage) -> None:
     await callback.answer()
@@ -628,7 +775,7 @@ async def edit_support_teacher_menu(callback: CallbackQuery, config: Config, sto
         await callback.message.answer("⚠️ Support Teacher topilmadi.", reply_markup=inline(managed_support_rows(storage)))
         return
     await callback.message.answer(
-        f"✏️ #{support.id} {support.name} {support.surname}\nQaysi ma’lumot o‘zgartiriladi?",
+        f"✏️ {support.name} {support.surname}\nQaysi ma’lumot o‘zgartiriladi?",
         reply_markup=inline([
             [("📱 Telefon", f"support_admin:edit_field:{support.id}:phone")],
             [("👤 Ism", f"support_admin:edit_field:{support.id}:name"), ("👤 Familiya", f"support_admin:edit_field:{support.id}:surname")],
@@ -683,7 +830,7 @@ async def edit_support_teacher_field_finish(message: Message, state: FSMContext,
     if not support:
         await message.answer("⚠️ Support Teacher topilmadi.", reply_markup=inline(managed_support_rows(storage)))
         return
-    await message.answer(f"✅ Yangilandi: #{support.id} {support.name} {support.surname}", reply_markup=inline([[("⬅️ Profilga qaytish", f"support_admin:open:{support.id}")]]))
+    await message.answer(f"✅ Yangilandi: {support.name} {support.surname}", reply_markup=inline([[("⬅️ Profilga qaytish", f"support_admin:open:{support.id}")]]))
 
 
 def support_edit_category_keyboard(storage: Storage, support_id: int, selected_ids: list[int]):
@@ -772,7 +919,7 @@ async def delete_support_teacher_confirm(callback: CallbackQuery, config: Config
     active = stats_data["booked"] if stats_data else 0
     await callback.message.answer(
         "\n".join([
-            f"🗑 #{support.id} {support.name} {support.surname} o‘chirilsinmi?",
+            f"🗑 {support.name} {support.surname} o‘chirilsinmi?",
             f"Aktiv darslar: {active}",
             "Aktiv dars bo‘lsa o‘chirish bajarilmaydi.",
         ]),
@@ -823,7 +970,7 @@ async def open_category(callback: CallbackQuery, config: Config, storage: Storag
     attached = len(storage.list_support_teachers(category.id))
     await callback.message.answer(
         "\n".join([
-            f"#{category.id} {category.name}",
+            category.name,
             f"🧑‍🏫 Biriktirilgan Support Teacherlar: {attached}",
         ]),
         reply_markup=inline([
@@ -865,7 +1012,7 @@ async def edit_category_name(message: Message, state: FSMContext, storage: Stora
     if not category:
         await message.answer("⚠️ Yo‘nalish topilmadi.", reply_markup=back_to_main_keyboard({"role": "admin"}))
         return
-    await message.answer(f"✅ Yo‘nalish yangilandi: #{category.id} {category.name}", reply_markup=back_to_main_keyboard({"role": "admin"}))
+    await message.answer(f"✅ Yo‘nalish yangilandi: {category.name}", reply_markup=back_to_main_keyboard({"role": "admin"}))
 
 
 @router.callback_query(F.data.startswith("category:delete:"))
@@ -884,7 +1031,7 @@ async def delete_category_confirm(callback: CallbackQuery, config: Config, stora
     attached = len(storage.list_support_teachers(category.id))
     await callback.message.answer(
         "\n".join([
-            f"🗑 #{category.id} {category.name} o‘chirilsinmi?",
+            f"🗑 {category.name} o‘chirilsinmi?",
             f"Bu yo‘nalish {attached} ta Support Teacherdan olib tashlanadi.",
         ]),
         reply_markup=inline([
@@ -928,7 +1075,7 @@ async def create_category_name(message: Message, state: FSMContext, storage: Sto
         return
     category = storage.create_category(value)
     await state.clear()
-    await message.answer(f"✅ Yo‘nalish yaratildi: #{category.id} {category.name}", reply_markup=back_to_main_keyboard({"role": "admin"}))
+    await message.answer(f"✅ Yo‘nalish yaratildi: {category.name}", reply_markup=back_to_main_keyboard({"role": "admin"}))
 
 
 @router.callback_query(F.data == "admin:sending")

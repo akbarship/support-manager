@@ -36,3 +36,7 @@ class EditCategory(StatesGroup):
 
 class Broadcast(StatesGroup):
     message = State()
+
+
+class StudentSearch(StatesGroup):
+    query = State()

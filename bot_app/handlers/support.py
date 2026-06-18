@@ -112,7 +112,7 @@ async def notify_reassigned_booking(callback: CallbackQuery, storage: Storage, o
                 learner.chat_id,
                 "\n".join(filter(None, [
                     f"🔄 Darsingiz boshqa Support Teacherga o‘tkazildi",
-                    f"📚 Yangi dars #{new_booking.id}",
+                    "📚 Yangi dars",
                     f"📅 {old_booking.date}",
                     f"🕘 {old_booking.start_hour}:00 ({old_booking.duration} soat)",
                     f"🧑‍🏫 {replacement.name} {replacement.surname}",
@@ -124,7 +124,7 @@ async def notify_reassigned_booking(callback: CallbackQuery, storage: Storage, o
             await callback.bot.send_message(
                 replacement_user.chat_id,
                 "\n".join(filter(None, [
-                    f"📚 Sizga yangi dars biriktirildi #{new_booking.id}",
+                    "📚 Sizga yangi dars biriktirildi",
                     f"📅 {old_booking.date}",
                     f"🕘 {old_booking.start_hour}:00 ({old_booking.duration} soat)",
                     f"👤 {learner.name if learner else ''} {learner.surname if learner else ''}",
@@ -136,7 +136,7 @@ async def notify_reassigned_booking(callback: CallbackQuery, storage: Storage, o
     if learner and learner.chat_id:
         await callback.bot.send_message(
             learner.chat_id,
-            f"🚫 Dars #{old_booking.id} bekor qilindi.\nHozircha o‘rniga bo‘sh Support Teacher topilmadi.",
+            "🚫 Dars bekor qilindi.\nHozircha o‘rniga bo‘sh Support Teacher topilmadi.",
         )
 
 
@@ -255,7 +255,7 @@ async def support_bookings(callback: CallbackQuery, storage: Storage) -> None:
         user = storage.get_user_by_phone(booking.user_phone)
         await callback.message.answer(
             "\n".join([
-                f"📚 Dars #{booking.id}",
+                "📚 Dars",
                 f"📅 {booking.date}",
                 f"🕘 {booking.start_hour}:00 ({booking.duration} soat)",
                 f"👤 {user.name if user else ''} {user.surname if user else ''}",
@@ -301,7 +301,7 @@ async def support_cancel(callback: CallbackQuery, storage: Storage) -> None:
         await notify_reassigned_booking(callback, storage, booking, replacement, new_booking)
         return
 
-    await callback.message.answer(f"✅ Dars #{booking.id} bekor qilindi. Bo‘sh Support Teacher topilmadi.", reply_markup=back_to_support_bookings_keyboard())
+    await callback.message.answer("✅ Dars bekor qilindi. Bo‘sh Support Teacher topilmadi.", reply_markup=back_to_support_bookings_keyboard())
     await notify_reassigned_booking(callback, storage, booking, replacement, new_booking)
 
 
@@ -337,7 +337,7 @@ async def no_show(callback: CallbackQuery, storage: Storage, config: Config) -> 
             "🚫 O‘quvchiga ban berildi" if banned_until else "⚠️ O‘quvchiga ogohlantirish berildi",
             f"👤 {user.name} {user.surname}",
             f"📱 {user.phone}",
-            f"📚 Dars #{booking.id}",
+            "📚 Dars",
             f"Hisob: {count}/3",
             f"Ban tugaydi: {banned_until[:10]}" if banned_until else "",
         ])),
@@ -365,5 +365,5 @@ async def complete(callback: CallbackQuery, storage: Storage) -> None:
     storage.complete_booking(booking.id)
     learner = storage.get_user_by_phone(booking.user_phone)
     if learner and learner.chat_id:
-        await callback.bot.send_message(learner.chat_id, f"⭐ Dars #{booking.id} uchun baho bering.", reply_markup=rating_keyboard(booking.id))
-    await callback.message.answer(f"✅ Dars #{booking.id} yakunlandi.", reply_markup=back_to_support_bookings_keyboard())
+        await callback.bot.send_message(learner.chat_id, "⭐ Dars uchun baho bering.", reply_markup=rating_keyboard(booking.id))
+    await callback.message.answer("✅ Dars yakunlandi.", reply_markup=back_to_support_bookings_keyboard())

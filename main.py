@@ -17,7 +17,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from bot_app.config import load_config
 from bot_app.database import Storage
 from bot_app.handlers import setup_routers
-from bot_app.services import reminder_loop
+from bot_app.services import backup_loop, reminder_loop, send_database_backup
 
 
 class BotAlreadyRunningError(RuntimeError):
@@ -59,12 +59,23 @@ async def main() -> None:
         dispatcher["storage"] = storage
         dispatcher.include_router(setup_routers())
 
+        try:
+            await send_database_backup(bot, storage, config.backup_channel_id, "Bot ishga tushdi")
+        except Exception as error:
+            print(f"Boshlang‘ich backup xatosi: {error}")
         reminder_task = asyncio.create_task(reminder_loop(bot, storage))
+        backup_task = asyncio.create_task(backup_loop(bot, storage, config.backup_channel_id))
         try:
             print("Support Manager aiogram polling orqali ishga tushdi.")
             await dispatcher.start_polling(bot, drop_pending_updates=True)
         finally:
             reminder_task.cancel()
+            backup_task.cancel()
+            await asyncio.gather(reminder_task, backup_task, return_exceptions=True)
+            try:
+                await send_database_backup(bot, storage, config.backup_channel_id, "Bot to‘xtamoqda")
+            except Exception as error:
+                print(f"Yakuniy backup xatosi: {error}")
             storage.close()
             await bot.session.close()
 

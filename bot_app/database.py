@@ -370,6 +370,21 @@ class Storage:
         ).fetchall()
         return [user for row in rows if (user := self.refresh_ban(self._user(row)))]
 
+    def search_students(self, query: str) -> list[User]:
+        text = query.strip().casefold().lstrip("@")
+        phone_query = normalize_phone(query)
+        matches: list[User] = []
+        for student in self.list_students():
+            full_name = f"{student.name} {student.surname}".strip().casefold()
+            username = student.username.casefold().lstrip("@")
+            if (
+                text in full_name
+                or (username and text in username)
+                or (phone_query and phone_query in student.phone)
+            ):
+                matches.append(student)
+        return matches
+
     def student_stats(self, phone: str) -> dict[str, Any] | None:
         user = self.get_user_by_phone(phone)
         if not user or user.role != "student":
@@ -803,6 +818,25 @@ class Storage:
         )
         self.db.commit()
         return self.get_booking(booking_id)
+
+    def cancel_all_bookings(self, reason: str = "admin_reset_all") -> int:
+        cursor = self.db.execute(
+            """
+            UPDATE bookings
+            SET status = 'cancelled', cancel_reason = ?, cancelled_at = ?
+            WHERE status = 'booked'
+            """,
+            (reason, now()),
+        )
+        self.db.commit()
+        return cursor.rowcount
+
+    def create_backup(self, destination: str) -> None:
+        backup = sqlite3.connect(destination)
+        try:
+            self.db.backup(backup)
+        finally:
+            backup.close()
 
     def complete_booking(self, booking_id: int) -> Booking | None:
         booking = self.get_booking(booking_id)

@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+import sqlite3
 from pathlib import Path
 
 from bot_app.database import Storage
@@ -252,6 +253,47 @@ class StorageTest(unittest.TestCase):
         self.assertTrue(self.storage.delete_support_teacher(support.id))
         self.assertIsNone(self.storage.get_support_teacher(support.id))
         self.assertEqual(self.storage.get_user_by_phone(support.phone).role, "student")
+
+    def test_searches_students_by_phone_name_and_username(self):
+        student = self.storage.upsert_allowed_user("+998901234567", "student", "Madina", "Aliyeva")
+        self.storage.link_telegram_user(
+            student.phone,
+            123,
+            456,
+            {"first_name": "Madina", "last_name": "Aliyeva", "username": "madina_support"},
+            "uz",
+        )
+
+        self.assertEqual(self.storage.search_students("90123")[0].phone, student.phone)
+        self.assertEqual(self.storage.search_students("madina ali")[0].phone, student.phone)
+        self.assertEqual(self.storage.search_students("@MADINA_SUPPORT")[0].phone, student.phone)
+
+    def test_cancels_all_active_bookings(self):
+        category, support, student, first = self.seed()
+        second = self.storage.create_booking(
+            "student",
+            student.phone,
+            support.id,
+            category.id,
+            "2099-01-02",
+            11,
+            1,
+        )
+
+        self.assertEqual(self.storage.cancel_all_bookings(), 2)
+        self.assertEqual(self.storage.get_booking(first.id).status, "cancelled")
+        self.assertEqual(self.storage.get_booking(second.id).status, "cancelled")
+        self.assertEqual(self.storage.cancel_all_bookings(), 0)
+
+    def test_creates_consistent_database_backup(self):
+        self.seed()
+        backup_path = Path(self.temp_dir.name) / "backup.sqlite"
+
+        self.storage.create_backup(str(backup_path))
+
+        with sqlite3.connect(backup_path) as backup:
+            self.assertEqual(backup.execute("SELECT COUNT(*) FROM users").fetchone()[0], 2)
+            self.assertEqual(backup.execute("SELECT COUNT(*) FROM bookings").fetchone()[0], 1)
 
 
 if __name__ == "__main__":

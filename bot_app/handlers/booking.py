@@ -202,7 +202,7 @@ async def book(callback: CallbackQuery, storage: Storage) -> None:
         await callback.bot.send_message(
             support_user.chat_id,
             "\n".join(filter(None, [
-                f"📚 Yangi dars #{booking.id}",
+                "📚 Yangi dars",
                 f"📅 {date}",
                 f"🕘 {hour}:00",
                 f"⏱ {duration} soat",
@@ -230,7 +230,7 @@ async def learner_bookings(callback: CallbackQuery, storage: Storage) -> None:
         support = storage.get_support_teacher(booking.support_teacher_id)
         await callback.message.answer(
             "\n".join(filter(None, [
-                f"📚 Dars #{booking.id}",
+                "📚 Dars",
                 f"📅 {booking.date}",
                 f"🕘 {booking.start_hour}:00 ({booking.duration} soat)",
                 f"🧑‍🏫 Support Teacher: {support.name if support else ''} {support.surname if support else ''}",
@@ -266,14 +266,14 @@ async def learner_cancel(callback: CallbackQuery, storage: Storage) -> None:
     support = storage.get_support_teacher(booking.support_teacher_id)
     support_user = storage.get_user_by_phone(support.phone) if support else None
     await callback.message.answer(
-        f"✅ Dars #{booking.id} bekor qilindi.",
+        "✅ Dars bekor qilindi.",
         reply_markup=inline([[("⬅️ Darslarimga qaytish", "learner:bookings")]]),
     )
     if support_user and support_user.chat_id:
         await callback.bot.send_message(
             support_user.chat_id,
             "\n".join([
-                f"🚫 Dars #{booking.id} bekor qilindi",
+                "🚫 Dars bekor qilindi",
                 f"📅 {booking.date}",
                 f"🕘 {booking.start_hour}:00 ({booking.duration} soat)",
                 f"👤 {user.name} {user.surname}",
@@ -306,7 +306,7 @@ async def rate(callback: CallbackQuery, storage: Storage, config: Config) -> Non
             support_user.chat_id,
             "\n".join([
                 "⭐ Yangi anonim feedback",
-                f"📚 Dars #{booking.id}",
+                "📚 Dars",
                 f"📅 {booking.date}",
                 f"🕘 {booking.start_hour}:00",
                 f"⭐ Baho: {rating}/5",
@@ -323,7 +323,7 @@ async def rate(callback: CallbackQuery, storage: Storage, config: Config) -> Non
                     "⭐ Support Teacher feedback",
                     f"🧑‍🏫 {support.name} {support.surname}",
                     f"📱 Support telefon: {support.phone}",
-                    f"📚 Dars #{booking.id}",
+                    "📚 Dars",
                     f"📅 {booking.date}",
                     f"🕘 {booking.start_hour}:00 ({booking.duration} soat)",
                     f"⭐ Baho: {rating}/5",

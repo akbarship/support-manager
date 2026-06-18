@@ -72,6 +72,7 @@ def admin_keyboard() -> InlineKeyboardMarkup:
         [("👑 Adminlar", "admin:admins"), ("🧭 Yo‘nalishlar", "admin:categories")],
         [("📣 Xabar yuborish", "admin:sending")],
         [("📊 Statistika", "admin:stats")],
+        [("🧹 Barcha darslarni bekor qilish", "admin:reset_lessons")],
     ])
 
 

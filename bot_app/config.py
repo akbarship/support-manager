@@ -22,6 +22,7 @@ class Config:
     database_path: str
     telegram_proxy: str | None = None
     feedback_channel_id: str | None = None
+    backup_channel_id: str = "-1004400631365"
 
 
 def load_config() -> Config:
@@ -36,4 +37,5 @@ def load_config() -> Config:
         database_path=getenv("DATABASE_PATH", "./data/support-manager.sqlite"),
         telegram_proxy=getenv("TELEGRAM_PROXY") or None,
         feedback_channel_id=getenv("FEEDBACK_CHANNEL_ID") or None,
+        backup_channel_id=getenv("BACKUP_CHANNEL_ID", "-1004400631365"),
     )
