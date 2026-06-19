@@ -399,7 +399,7 @@ async def reset_sunday_lessons_execute(callback: CallbackQuery, config: Config, 
                 await callback.bot.send_message(
                     support_user.chat_id,
                     "\n".join(filter(None, [
-                        "☀️ Yakshanba kuni markaz ishlamagani sabab dars bekor qilindi.",
+                        "☀️ Assalomu alaykum. Noqulaylik uchun uzr so‘raymiz. Texnik xatolik sababli botda yakshanba kuni uchun dars vaqtlari noto‘g‘ri ochib yuborilgan. Aslida markazimiz yakshanba kunlari faoliyat yuritmaydi, shu sababli rejalashtirilgan darsingizni o‘tkaza olmaymiz.\n\nDarsni boshqa kunga ko‘chirish uchun iltimos, o‘zingizga qulay kun va vaqtni tanlab, qayta bron qiling. Biz siz bilan tanlangan vaqtda darsni mamnuniyat bilan o‘tkazamiz.\n\nYana bir bor yuzaga kelgan noqulaylik uchun uzr so‘raymiz va vaziyatni tushunganingiz uchun rahmat. Agar savollaringiz bo‘lsa, bemalol murojaat qilishingiz mumkin. 🙏",
                         f"📅 {booking.date}",
                         f"🕘 {booking.start_hour}:00",
                         f"📝 Mavzu: {booking.topic}" if booking.topic else "",
