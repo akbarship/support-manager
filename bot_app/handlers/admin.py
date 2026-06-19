@@ -7,7 +7,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
 from bot_app.config import Config
-from bot_app.database import Storage, User, local_now
+from bot_app.database import Booking, Storage, User, is_sunday, local_now
 from bot_app.keyboards import (
     admin_flow_keyboard,
     admin_keyboard,
@@ -25,6 +25,10 @@ PAGE_SIZE = 8
 
 def is_admin(user_id: int | None, config: Config, storage: Storage | None = None) -> bool:
     return bool(user_id and (user_id in config.admin_ids or (storage and storage.is_admin_telegram_id(user_id))))
+
+
+def is_env_admin(user_id: int | None, config: Config) -> bool:
+    return bool(user_id and user_id in config.admin_ids)
 
 
 async def delete_callback_message(callback: CallbackQuery) -> None:
@@ -94,7 +98,7 @@ def managed_support_rows(storage: Storage, page: int = 0) -> list[list[tuple[str
     page = max(0, min(page, pages - 1))
     rows = [[("➕ Support Teacher qo‘shish", "admin:add_support")]]
     for support in supports[page * PAGE_SIZE:(page + 1) * PAGE_SIZE]:
-        rating = f"{support.rating}/5" if support.rating_count else "baho yo‘q"
+        rating = f"{support.rating}/5"
         rows.append([(f"{support.name} {support.surname} | {rating}", f"support_admin:open:{support.id}")])
     rows.append(pagination_row("admin:supports_page", page, len(supports)))
     rows.append([("🏠 Admin menyu", "admin:menu")])
@@ -166,7 +170,7 @@ def support_admin_text(storage: Storage, support_id: int) -> str:
 
     support = stats_data["support"]
     month = local_now().date().isoformat()[:7]
-    rating = f"{support.rating}/5 ({support.rating_count})" if support.rating_count else "Hali yo‘q"
+    rating = f"{support.rating}/5 ({support.rating_count})"
     recent_feedback = stats_data["recent_feedback"]
     feedback_lines = [
         f"  {item['lesson_date']} | {item['rating']}/5"
@@ -204,13 +208,88 @@ def support_admin_text(storage: Storage, support_id: int) -> str:
     ])
 
 
+def active_lessons_text(storage: Storage, page: int) -> tuple[str, int, int]:
+    bookings = storage.list_bookings(status="booked")
+    pages = max(1, (len(bookings) + PAGE_SIZE - 1) // PAGE_SIZE)
+    page = max(0, min(page, pages - 1))
+    visible = bookings[page * PAGE_SIZE:(page + 1) * PAGE_SIZE]
+    blocks: list[str] = []
+    for booking in visible:
+        student = storage.get_user_by_phone(booking.user_phone)
+        support = storage.get_support_teacher(booking.support_teacher_id)
+        blocks.append("\n".join(filter(None, [
+            f"🎓 {student.name} {student.surname}".strip() if student else f"🎓 {booking.user_phone}",
+            f"📱 O‘quvchi: {student.phone}" if student else f"📱 O‘quvchi: {booking.user_phone}",
+            f"🔗 @{student.username}" if student and student.username else "",
+            f"🧑‍🏫 {support.name} {support.surname}" if support else "🧑‍🏫 Support Teacher topilmadi",
+            f"📱 Support Teacher: {support.phone}" if support else "",
+            f"📅 {booking.date}",
+            f"🕘 {booking.start_hour}:00",
+            f"📝 Mavzu: {booking.topic}" if booking.topic else "",
+        ])))
+    body = "\n\n".join(blocks) if blocks else "📭 Aktiv darslar yo‘q."
+    return f"📚 Aktiv darslar: {len(bookings)}\n\n{body}", page, len(bookings)
+
+
+def sunday_student_notice(booking: Booking, language: str) -> str:
+    if language == "ru":
+        return "\n".join(filter(None, [
+            "Здравствуйте!",
+            "",
+            "К сожалению, по воскресеньям наш учебный центр не работает.",
+            "Из-за технической ошибки ваш урок был записан на воскресенье, поэтому нам пришлось отменить эту запись.",
+            "",
+            f"📅 Отменённая дата: {booking.date}",
+            f"🕘 Время: {booking.start_hour}:00",
+            f"📝 Тема: {booking.topic}" if booking.topic else "",
+            "",
+            "Пожалуйста, откройте бот и выберите новое удобное время с понедельника по субботу.",
+            "Приносим искренние извинения за неудобство и благодарим за понимание.",
+        ]))
+    return "\n".join(filter(None, [
+        "Assalomu alaykum!",
+        "",
+        "Afsuski, o‘quv markazimiz yakshanba kunlari ishlamaydi.",
+        "Texnik xatolik sabab darsingiz yakshanba kuniga band qilingan edi. Shu sababli ushbu darsni bekor qilishga majbur bo‘ldik.",
+        "",
+        f"📅 Bekor qilingan sana: {booking.date}",
+        f"🕘 Vaqt: {booking.start_hour}:00",
+        f"📝 Mavzu: {booking.topic}" if booking.topic else "",
+        "",
+        "Iltimos, bot orqali dushanbadan shanbagacha bo‘lgan kunlardan o‘zingizga qulay yangi vaqtni tanlang.",
+        "Yuzaga kelgan noqulaylik uchun chin dildan uzr so‘raymiz va tushunganingiz uchun rahmat.",
+    ]))
+
+
+async def send_sunday_reset_prompt(message: Message, storage: Storage) -> None:
+    sunday_count = sum(
+        1 for booking in storage.list_bookings(status="booked")
+        if is_sunday(booking.date)
+    )
+    await message.answer(
+        "\n".join([
+            "☀️ Yakshanbaga noto‘g‘ri band qilingan darslarni bekor qilish",
+            f"Topilgan aktiv yakshanba darslari: {sunday_count}",
+            "",
+            "Tasdiqlasangiz, ushbu darslar bekor qilinadi va har bir o‘quvchiga sabab hamda boshqa kunni tanlash bo‘yicha muloyim xabar yuboriladi.",
+        ]),
+        reply_markup=inline([
+            [("✅ Tasdiqlash va xabar yuborish", "admin:reset_sunday_execute")],
+            [("❌ Bekor qilish", "admin:menu")],
+        ]),
+    )
+
+
 @router.message(Command("admin"))
 async def admin_panel(message: Message, config: Config, state: FSMContext, storage: Storage) -> None:
     if not is_admin(message.from_user.id if message.from_user else None, config, storage):
         await message.answer("🚫 Admin panelga ruxsat yo‘q.")
         return
     await state.clear()
-    await message.answer("👑 Admin panel", reply_markup=admin_keyboard())
+    await message.answer(
+        "👑 Admin panel",
+        reply_markup=admin_keyboard(is_env_admin(message.from_user.id if message.from_user else None, config)),
+    )
 
 
 @router.callback_query(F.data == "admin:menu")
@@ -219,7 +298,10 @@ async def admin_menu(callback: CallbackQuery, config: Config, state: FSMContext,
     await state.clear()
     await delete_callback_message(callback)
     if callback.message and is_admin(callback.from_user.id, config, storage):
-        await callback.message.answer("👑 Admin panel", reply_markup=admin_keyboard())
+        await callback.message.answer(
+            "👑 Admin panel",
+            reply_markup=admin_keyboard(is_env_admin(callback.from_user.id, config)),
+        )
 
 
 @router.callback_query(F.data == "admin:cancel")
@@ -237,14 +319,111 @@ async def admin_back(callback: CallbackQuery, config: Config, state: FSMContext,
     await state.clear()
     await delete_callback_message(callback)
     if callback.message and is_admin(callback.from_user.id, config, storage):
-        await callback.message.answer("👑 Admin panel", reply_markup=admin_keyboard())
+        await callback.message.answer(
+            "👑 Admin panel",
+            reply_markup=admin_keyboard(is_env_admin(callback.from_user.id, config)),
+        )
+
+
+@router.callback_query(F.data == "admin:active_lessons")
+async def active_lessons(callback: CallbackQuery, config: Config, storage: Storage) -> None:
+    await callback.answer()
+    await delete_callback_message(callback)
+    if not callback.message or not is_admin(callback.from_user.id, config, storage):
+        return
+    text, page, total = active_lessons_text(storage, 0)
+    rows = [pagination_row("admin:active_lessons_page", page, total)]
+    rows.append([("🏠 Admin menyu", "admin:menu")])
+    await callback.message.answer(text, reply_markup=inline(rows))
+
+
+@router.callback_query(F.data.startswith("admin:active_lessons_page:"))
+async def active_lessons_page(callback: CallbackQuery, config: Config, storage: Storage) -> None:
+    await callback.answer()
+    await delete_callback_message(callback)
+    if not callback.message or not is_admin(callback.from_user.id, config, storage):
+        return
+    requested_page = int(callback.data.rsplit(":", 1)[1])
+    text, page, total = active_lessons_text(storage, requested_page)
+    rows = [pagination_row("admin:active_lessons_page", page, total)]
+    rows.append([("🏠 Admin menyu", "admin:menu")])
+    await callback.message.answer(text, reply_markup=inline(rows))
+
+
+@router.message(Command("reset_sunday_lessons"))
+async def reset_sunday_lessons_command(message: Message, config: Config, storage: Storage) -> None:
+    if not is_env_admin(message.from_user.id if message.from_user else None, config):
+        await message.answer("🚫 Bu buyruq faqat .env faylidagi ADMIN_IDS ro‘yxatida bor adminlar uchun.")
+        return
+    await send_sunday_reset_prompt(message, storage)
+
+
+@router.callback_query(F.data == "admin:reset_sunday_lessons")
+async def reset_sunday_lessons_menu(callback: CallbackQuery, config: Config, storage: Storage) -> None:
+    await callback.answer()
+    await delete_callback_message(callback)
+    if not callback.message:
+        return
+    if not is_env_admin(callback.from_user.id, config):
+        await callback.message.answer("🚫 Bu amal faqat asosiy admin uchun ruxsat etilgan.")
+        return
+    await send_sunday_reset_prompt(callback.message, storage)
+
+
+@router.callback_query(F.data == "admin:reset_sunday_execute")
+async def reset_sunday_lessons_execute(callback: CallbackQuery, config: Config, storage: Storage) -> None:
+    await callback.answer()
+    await delete_callback_message(callback)
+    if not callback.message:
+        return
+    if not is_env_admin(callback.from_user.id, config):
+        await callback.message.answer("🚫 Bu amal faqat asosiy admin uchun ruxsat etilgan.")
+        return
+    cancelled = storage.cancel_sunday_bookings()
+    notified = 0
+    for booking in cancelled:
+        student = storage.get_user_by_phone(booking.user_phone)
+        if student and student.chat_id:
+            try:
+                await callback.bot.send_message(
+                    student.chat_id,
+                    sunday_student_notice(booking, student.language),
+                )
+                notified += 1
+            except Exception:
+                pass
+        support = storage.get_support_teacher(booking.support_teacher_id)
+        support_user = storage.get_user_by_phone(support.phone) if support else None
+        if support_user and support_user.chat_id:
+            try:
+                await callback.bot.send_message(
+                    support_user.chat_id,
+                    "\n".join(filter(None, [
+                        "☀️ Yakshanba kuni markaz ishlamagani sabab dars bekor qilindi.",
+                        f"📅 {booking.date}",
+                        f"🕘 {booking.start_hour}:00",
+                        f"📝 Mavzu: {booking.topic}" if booking.topic else "",
+                    ])),
+                )
+            except Exception:
+                pass
+    await callback.message.answer(
+        "\n".join([
+            f"✅ Bekor qilingan yakshanba darslari: {len(cancelled)}",
+            f"📨 Xabar yetkazilgan o‘quvchilar: {notified}",
+        ]),
+        reply_markup=admin_keyboard(True),
+    )
 
 
 @router.callback_query(F.data == "admin:reset_lessons")
 async def reset_lessons_first_confirmation(callback: CallbackQuery, config: Config, storage: Storage) -> None:
     await callback.answer()
     await delete_callback_message(callback)
-    if not callback.message or not is_admin(callback.from_user.id, config, storage):
+    if not callback.message:
+        return
+    if not is_env_admin(callback.from_user.id, config):
+        await callback.message.answer("🚫 Bu amal faqat asosiy admin uchun ruxsat etilgan.")
         return
     active_count = len(storage.list_bookings(status="booked"))
     await callback.message.answer(
@@ -264,7 +443,10 @@ async def reset_lessons_first_confirmation(callback: CallbackQuery, config: Conf
 async def reset_lessons_second_confirmation(callback: CallbackQuery, config: Config, storage: Storage) -> None:
     await callback.answer()
     await delete_callback_message(callback)
-    if not callback.message or not is_admin(callback.from_user.id, config, storage):
+    if not callback.message:
+        return
+    if not is_env_admin(callback.from_user.id, config):
+        await callback.message.answer("🚫 Bu amal faqat asosiy admin uchun ruxsat etilgan.")
         return
     await callback.message.answer(
         "🚨 Oxirgi tasdiqlash\nBu amal barcha aktiv darslarni darhol bekor qiladi.",
@@ -279,12 +461,15 @@ async def reset_lessons_second_confirmation(callback: CallbackQuery, config: Con
 async def reset_lessons_execute(callback: CallbackQuery, config: Config, storage: Storage) -> None:
     await callback.answer()
     await delete_callback_message(callback)
-    if not callback.message or not is_admin(callback.from_user.id, config, storage):
+    if not callback.message:
+        return
+    if not is_env_admin(callback.from_user.id, config):
+        await callback.message.answer("🚫 Bu amal faqat asosiy admin uchun ruxsat etilgan.")
         return
     cancelled = storage.cancel_all_bookings()
     await callback.message.answer(
         f"✅ {cancelled} ta aktiv dars bekor qilindi.",
-        reply_markup=admin_keyboard(),
+        reply_markup=admin_keyboard(True),
     )
 
 
@@ -1145,6 +1330,7 @@ async def stats(callback: CallbackQuery, config: Config, storage: Storage) -> No
                 f"⭐ Feedback: {stats_data['feedback']}",
             ]),
             reply_markup=inline([
+                [("📚 Barcha aktiv darslar", "admin:active_lessons")],
                 [("🧑‍🏫 Support Teacher statistikasi", "admin:supports")],
                 [("🏠 Admin menyu", "admin:menu")],
             ]),

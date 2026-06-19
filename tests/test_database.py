@@ -48,6 +48,18 @@ class StorageTest(unittest.TestCase):
         self.assertEqual(self.storage.list_support_teachers(first.id)[0].id, support.id)
         self.assertEqual(self.storage.list_support_teachers(second.id)[0].id, support.id)
 
+    def test_support_teacher_rating_defaults_to_five(self):
+        category = self.storage.create_category("IELTS Support")
+        support = self.storage.create_support_teacher({
+            "phone": "+998901234567",
+            "name": "Sardor",
+            "surname": "Rahimov",
+            "categories": [category.id],
+        })
+
+        self.assertEqual(support.rating, 5)
+        self.assertEqual(support.rating_count, 0)
+
     def test_updates_category_name(self):
         category = self.storage.create_category("Old name")
         updated = self.storage.update_category(category.id, "New name")
@@ -186,13 +198,60 @@ class StorageTest(unittest.TestCase):
 
         self.assertNotIn(9, self.storage.get_open_slots(support.id, "2099-01-03"))
         self.assertIn(10, self.storage.get_open_slots(support.id, "2099-01-03"))
-        self.assertIn(9, self.storage.get_open_slots(support.id, "2099-01-04"))
-        self.assertNotIn(10, self.storage.get_open_slots(support.id, "2099-01-04"))
+        self.assertIn(9, self.storage.get_open_slots(support.id, "2099-01-06"))
+        self.assertNotIn(10, self.storage.get_open_slots(support.id, "2099-01-06"))
 
         odd_blocked = self.storage.create_booking("student", student.phone, support.id, category.id, "2099-01-03", 9, 1)
-        even_allowed = self.storage.create_booking("student", student.phone, support.id, category.id, "2099-01-04", 9, 1)
+        even_allowed = self.storage.create_booking("student", student.phone, support.id, category.id, "2099-01-06", 9, 1)
         self.assertIsNone(odd_blocked)
         self.assertIsNotNone(even_allowed)
+
+    def test_rejects_sunday_bookings(self):
+        category = self.storage.create_category("Speaking Support")
+        support = self.storage.create_support_teacher({
+            "phone": "+998901234567",
+            "name": "Sardor",
+            "surname": "Rahimov",
+            "categories": [category.id],
+        })
+        student = self.storage.upsert_allowed_user("+998907777777", "student", "Aziz", "Karimov")
+
+        self.assertEqual(self.storage.get_open_slots(support.id, "2099-01-04"), [])
+        self.assertIsNone(
+            self.storage.create_booking(
+                "student",
+                student.phone,
+                support.id,
+                category.id,
+                "2099-01-04",
+                10,
+                1,
+                "Speaking",
+            )
+        )
+
+    def test_cancels_only_existing_sunday_bookings(self):
+        category, support, student, weekday_booking = self.seed()
+        self.storage.db.execute(
+            """
+            INSERT INTO bookings (
+              role, user_phone, support_teacher_id, category_id, lesson_date, start_hour,
+              duration, hours_json, topic, status, reminded20, reminded5,
+              feedback_requested, feedback_given, created_at
+            )
+            VALUES ('student', ?, ?, ?, '2099-01-04', 10, 1, '[10]', 'Speaking',
+                    'booked', 0, 0, 0, 0, '2099-01-01T00:00:00')
+            """,
+            (student.phone, support.id, category.id),
+        )
+        self.storage.db.commit()
+
+        cancelled = self.storage.cancel_sunday_bookings()
+
+        self.assertEqual(len(cancelled), 1)
+        self.assertEqual(cancelled[0].date, "2099-01-04")
+        self.assertEqual(self.storage.get_booking(cancelled[0].id).status, "cancelled")
+        self.assertEqual(self.storage.get_booking(weekday_booking.id).status, "booked")
 
     def test_no_show_cycle_bans_on_third_absence(self):
         category, support, student, booking = self.seed()

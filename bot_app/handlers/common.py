@@ -5,6 +5,7 @@ from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
 
+from bot_app.config import Config
 from bot_app.database import Storage
 from bot_app.keyboards import contact_keyboard, language_keyboard, main_keyboard
 from bot_app.states import Onboarding
@@ -21,15 +22,31 @@ async def delete_callback_message(callback: CallbackQuery) -> None:
             pass
 
 
-async def show_main_menu(message: Message, storage: Storage, telegram_id: int | None) -> None:
+async def show_main_menu(message: Message, storage: Storage, config: Config, telegram_id: int | None) -> None:
     user = storage.get_user_by_telegram_id(telegram_id)
     if not user:
         await message.answer(t("choose_language", "uz"), reply_markup=language_keyboard())
         return
-    await message.answer(f"🏠 {t('main_menu', user.language)}", reply_markup=main_keyboard(user, storage.is_admin_telegram_id(telegram_id)))
+    is_database_admin = storage.is_admin_telegram_id(telegram_id)
+    is_env_admin = bool(telegram_id and telegram_id in config.admin_ids)
+    await message.answer(
+        f"🏠 {t('main_menu', user.language)}",
+        reply_markup=main_keyboard(
+            user,
+            is_database_admin or is_env_admin,
+            show_destructive_actions=is_env_admin,
+        ),
+    )
 
 
-async def finish_onboarding(message: Message, storage: Storage, state: FSMContext, phone: str, language: str) -> None:
+async def finish_onboarding(
+    message: Message,
+    storage: Storage,
+    config: Config,
+    state: FSMContext,
+    phone: str,
+    language: str,
+) -> None:
     if not message.from_user:
         return
     user = storage.link_telegram_user(
@@ -49,13 +66,22 @@ async def finish_onboarding(message: Message, storage: Storage, state: FSMContex
         return
     await state.clear()
     await message.answer("✅ Telefon raqam saqlandi.", reply_markup=ReplyKeyboardRemove())
-    await message.answer(f"{t('onboarded', user.language)} {ROLE_LABELS[user.role]}", reply_markup=main_keyboard(user))
+    is_database_admin = storage.is_admin_telegram_id(message.from_user.id)
+    is_env_admin = message.from_user.id in config.admin_ids
+    await message.answer(
+        f"{t('onboarded', user.language)} {ROLE_LABELS[user.role]}",
+        reply_markup=main_keyboard(
+            user,
+            is_database_admin or is_env_admin,
+            show_destructive_actions=is_env_admin,
+        ),
+    )
 
 
 @router.message(CommandStart())
-async def start(message: Message, storage: Storage, state: FSMContext) -> None:
+async def start(message: Message, storage: Storage, config: Config, state: FSMContext) -> None:
     await state.clear()
-    await show_main_menu(message, storage, message.from_user.id if message.from_user else None)
+    await show_main_menu(message, storage, config, message.from_user.id if message.from_user else None)
 
 
 @router.callback_query(F.data.startswith("lang:"))
@@ -70,40 +96,40 @@ async def choose_language(callback: CallbackQuery, state: FSMContext) -> None:
 
 
 @router.message(F.contact)
-async def handle_contact(message: Message, storage: Storage, state: FSMContext) -> None:
+async def handle_contact(message: Message, storage: Storage, config: Config, state: FSMContext) -> None:
     if not message.from_user or not message.contact or message.contact.user_id != message.from_user.id:
         await message.answer("📱 Iltimos, o‘zingizning kontaktingizni yuboring.")
         return
     data = await state.get_data()
     language = data.get("language", "uz")
-    await finish_onboarding(message, storage, state, message.contact.phone_number, language)
+    await finish_onboarding(message, storage, config, state, message.contact.phone_number, language)
 
 
 @router.message(Onboarding.contact, F.text)
-async def handle_phone_text(message: Message, storage: Storage, state: FSMContext) -> None:
+async def handle_phone_text(message: Message, storage: Storage, config: Config, state: FSMContext) -> None:
     phone = (message.text or "").strip()
     if not phone:
         return
     data = await state.get_data()
     language = data.get("language", "uz")
-    await finish_onboarding(message, storage, state, phone, language)
+    await finish_onboarding(message, storage, config, state, phone, language)
 
 
 @router.callback_query(F.data == "main:menu")
-async def main_menu_callback(callback: CallbackQuery, storage: Storage, state: FSMContext) -> None:
+async def main_menu_callback(callback: CallbackQuery, storage: Storage, config: Config, state: FSMContext) -> None:
     await callback.answer()
     await state.clear()
     await delete_callback_message(callback)
     if callback.message:
-        await show_main_menu(callback.message, storage, callback.from_user.id)
+        await show_main_menu(callback.message, storage, config, callback.from_user.id)
 
 
 @router.callback_query(F.data == "main:menu_keep")
-async def main_menu_keep_callback(callback: CallbackQuery, storage: Storage, state: FSMContext) -> None:
+async def main_menu_keep_callback(callback: CallbackQuery, storage: Storage, config: Config, state: FSMContext) -> None:
     await callback.answer()
     await state.clear()
     if callback.message:
-        await show_main_menu(callback.message, storage, callback.from_user.id)
+        await show_main_menu(callback.message, storage, config, callback.from_user.id)
 
 
 @router.callback_query(F.data == "noop")

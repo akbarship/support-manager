@@ -31,6 +31,9 @@ app again.
 - Admin can create support categories, send broadcasts with copy-message, and view stats.
 - Student and Support Teacher admin lists are paginated; students can be searched by phone, name, or username.
 - Admin can cancel all active lessons after two confirmation steps.
+- Sunday is excluded from booking dates and Sunday bookings are rejected by storage validation.
+- Admin can view every active lesson with its student, Support Teacher, date, time, and topic.
+- `/reset_sunday_lessons` cancels mistakenly created Sunday lessons and politely notifies affected students.
 - Students can book Support Teachers by support direction.
 - Support Teachers can manage schedule, complete/cancel lessons, and mark `O‘quvchi kelmadi`.
 - If a Support Teacher cancels early, the bot tries to assign another free Support Teacher automatically.

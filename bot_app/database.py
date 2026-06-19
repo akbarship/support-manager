@@ -53,6 +53,13 @@ def schedule_template_for_date(date: str) -> str:
     return "odd" if day % 2 else "even"
 
 
+def is_sunday(date: str) -> bool:
+    try:
+        return datetime.fromisoformat(date).weekday() == 6
+    except ValueError:
+        return False
+
+
 @dataclass
 class User:
     phone: str
@@ -162,7 +169,7 @@ class Storage:
               ielts TEXT NOT NULL DEFAULT '',
               cefr TEXT NOT NULL DEFAULT '',
               sat TEXT NOT NULL DEFAULT '',
-              rating REAL NOT NULL DEFAULT 0,
+              rating REAL NOT NULL DEFAULT 5,
               rating_count INTEGER NOT NULL DEFAULT 0,
               categories_json TEXT NOT NULL,
               schedule_json TEXT NOT NULL,
@@ -208,6 +215,7 @@ class Storage:
         )
         self._ensure_column("users", "language", "TEXT NOT NULL DEFAULT 'uz'")
         self._ensure_column("bookings", "topic", "TEXT NOT NULL DEFAULT ''")
+        self.db.execute("UPDATE support_teachers SET rating = 5 WHERE rating_count = 0")
         self.db.execute("UPDATE users SET role = 'student', updated_at = ? WHERE role = 'teacher'", (now(),))
         self.db.commit()
 
@@ -248,7 +256,7 @@ class Storage:
             ielts=row["ielts"] or "",
             cefr=row["cefr"] or "",
             sat=row["sat"] or "",
-            rating=row["rating"] or 0,
+            rating=5 if not row["rating_count"] else (row["rating"] or 0),
             rating_count=row["rating_count"] or 0,
             categories=read_json(row["categories_json"], []),
             schedule=read_json(row["schedule_json"], {}),
@@ -574,10 +582,10 @@ class Storage:
         cursor = self.db.execute(
             """
             INSERT INTO support_teachers (
-              phone, name, surname, ielts, cefr, sat, categories_json, schedule_json,
+              phone, name, surname, ielts, cefr, sat, rating, categories_json, schedule_json,
               conducted_lessons, monthly_conducted_json, created_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, 5, ?, ?, 0, ?, ?)
             """,
             (
                 clean_phone,
@@ -716,6 +724,8 @@ class Storage:
         }
 
     def get_open_slots(self, support_id: int, date: str) -> list[int]:
+        if is_sunday(date):
+            return []
         support = self.get_support_teacher(support_id)
         if not support:
             return []
@@ -780,7 +790,7 @@ class Storage:
         duration: int,
         topic: str = "",
     ) -> Booking | None:
-        if duration != 1:
+        if duration != 1 or is_sunday(date):
             return None
         user = self.get_user_by_phone(user_phone)
         if user and user.banned_until and datetime.fromisoformat(user.banned_until) > local_now():
@@ -857,6 +867,29 @@ class Storage:
         )
         self.db.commit()
         return cursor.rowcount
+
+    def cancel_sunday_bookings(self) -> list[Booking]:
+        bookings = [
+            booking
+            for booking in self.list_bookings(status="booked")
+            if is_sunday(booking.date)
+        ]
+        if not bookings:
+            return []
+        booking_ids = [booking.id for booking in bookings]
+        placeholders = ", ".join("?" for _ in booking_ids)
+        self.db.execute(
+            f"""
+            UPDATE bookings
+            SET status = 'cancelled',
+                cancel_reason = 'sunday_closed',
+                cancelled_at = ?
+            WHERE id IN ({placeholders}) AND status = 'booked'
+            """,
+            [now(), *booking_ids],
+        )
+        self.db.commit()
+        return bookings
 
     def create_backup(self, destination: str) -> None:
         backup = sqlite3.connect(destination)

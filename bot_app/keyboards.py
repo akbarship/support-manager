@@ -65,15 +65,21 @@ def category_button_rows(
     return rows
 
 
-def admin_keyboard() -> InlineKeyboardMarkup:
-    return inline([
+def admin_keyboard(show_destructive_actions: bool = False) -> InlineKeyboardMarkup:
+    rows = [
         [("🧑‍🏫 Support Teacherlar", "admin:supports")],
         [("🎓 O‘quvchilar", "admin:students")],
+        [("📚 Aktiv darslar", "admin:active_lessons")],
         [("👑 Adminlar", "admin:admins"), ("🧭 Yo‘nalishlar", "admin:categories")],
         [("📣 Xabar yuborish", "admin:sending")],
         [("📊 Statistika", "admin:stats")],
-        [("🧹 Barcha darslarni bekor qilish", "admin:reset_lessons")],
-    ])
+    ]
+    if show_destructive_actions:
+        rows.extend([
+            [("☀️ Yakshanba darslarini bekor qilish", "admin:reset_sunday_lessons")],
+            [("🧹 Barcha darslarni bekor qilish", "admin:reset_lessons")],
+        ])
+    return inline(rows)
 
 
 def support_keyboard() -> InlineKeyboardMarkup:
@@ -91,9 +97,13 @@ def learner_keyboard(language: str = "uz") -> InlineKeyboardMarkup:
     ])
 
 
-def main_keyboard(user: User, is_admin: bool = False) -> InlineKeyboardMarkup:
+def main_keyboard(
+    user: User,
+    is_admin: bool = False,
+    show_destructive_actions: bool = False,
+) -> InlineKeyboardMarkup:
     if is_admin or user.role == "admin":
-        return admin_keyboard()
+        return admin_keyboard(show_destructive_actions)
     if user.role == "support_teacher":
         return support_keyboard()
     return learner_keyboard(user.language)
@@ -132,7 +142,7 @@ def category_keyboard(storage: Storage) -> InlineKeyboardMarkup:
 
 
 def support_info(storage: Storage, support: SupportTeacher, category_id: int | None = None) -> str:
-    rating = f"{support.rating}/5 ({support.rating_count})" if support.rating_count else "Hali baho yo‘q"
+    rating = f"{support.rating}/5 ({support.rating_count})"
     selected_category = storage.get_category(category_id) if category_id else None
     categories = ", ".join(
         category_item.name
@@ -174,12 +184,21 @@ def support_browser_keyboard(category_id: int, index: int, count: int, support_i
 
 
 def date_keyboard(today, support_id: int, category_id: int, support_index: int = 0) -> InlineKeyboardMarkup:
-    return inline([
-        [(f"📅 Bugun {today(0)}", f"date:{category_id}:{support_id}:{support_index}:{today(0)}")],
-        [(f"📅 Ertaga {today(1)}", f"date:{category_id}:{support_id}:{support_index}:{today(1)}")],
-        [(f"📅 {today(2)}", f"date:{category_id}:{support_id}:{support_index}:{today(2)}")],
-        [("⬅️ Support Teacherlarga qaytish", f"browse:{category_id}:{support_index}")],
-    ])
+    rows: list[list[tuple[str, str]]] = []
+    offset = 0
+    while len(rows) < 3:
+        date = today(offset)
+        if datetime.fromisoformat(date).weekday() != 6:
+            prefix = "Bugun " if offset == 0 else "Ertaga " if offset == 1 else ""
+            rows.append([
+                (
+                    f"📅 {prefix}{date}",
+                    f"date:{category_id}:{support_id}:{support_index}:{date}",
+                )
+            ])
+        offset += 1
+    rows.append([("⬅️ Support Teacherlarga qaytish", f"browse:{category_id}:{support_index}")])
+    return inline(rows)
 
 
 def slots_keyboard(storage: Storage, category_id: int, support_id: int, support_index: int, date: str, user: User, hours_until, start_at) -> InlineKeyboardMarkup:

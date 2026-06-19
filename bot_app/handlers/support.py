@@ -284,7 +284,7 @@ async def support_stats(callback: CallbackQuery, storage: Storage) -> None:
     await callback.message.answer(
         "\n".join([
             f"🧑‍🏫 {support.name} {support.surname}",
-            f"⭐ Reyting: {support.rating}/5" if support.rating_count else "⭐ Reyting: Hali yo‘q",
+            f"⭐ Reyting: {support.rating}/5",
             f"🏆 Shu oy: {support.monthly_conducted.get(month, 0)}/100",
             f"✅ Jami: {support.conducted_lessons}",
         ]),
