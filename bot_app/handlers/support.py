@@ -257,13 +257,15 @@ async def support_bookings(callback: CallbackQuery, storage: Storage) -> None:
         user = storage.get_user_by_phone(booking.user_phone)
         is_last = index == len(visible) - 1
         await callback.message.answer(
-            "\n".join([
+            "\n".join(filter(None, [
                 "📚 Dars",
                 f"📅 {booking.date}",
                 f"🕘 {booking.start_hour}:00 ({booking.duration} soat)",
                 f"📝 Mavzu: {booking.topic}" if booking.topic else "",
                 f"👤 {user.name if user else ''} {user.surname if user else ''}",
-            ]),
+                f"📱 Telefon: {user.phone if user else booking.user_phone}",
+                username_line(user),
+            ])),
             reply_markup=inline([
                 [("🚫 Bekor qilish", f"support_cancel:{booking.id}")],
                 [("👤 O‘quvchi kelmadi", f"no_show:{booking.id}")],
