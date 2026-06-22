@@ -9,7 +9,7 @@ from bot_app.config import Config
 from bot_app.database import Storage
 from bot_app.keyboards import contact_keyboard, language_keyboard, main_keyboard
 from bot_app.states import Onboarding
-from bot_app.texts import ROLE_LABELS, t
+from bot_app.texts import role_label, t
 
 router = Router()
 
@@ -65,11 +65,11 @@ async def finish_onboarding(
         await state.clear()
         return
     await state.clear()
-    await message.answer("✅ Telefon raqam saqlandi.", reply_markup=ReplyKeyboardRemove())
+    await message.answer(f"✅ {t('phone_saved', user.language)}", reply_markup=ReplyKeyboardRemove())
     is_database_admin = storage.is_admin_telegram_id(message.from_user.id)
     is_env_admin = message.from_user.id in config.admin_ids
     await message.answer(
-        f"{t('onboarded', user.language)} {ROLE_LABELS[user.role]}",
+        f"{t('onboarded', user.language)} {role_label(user.role, user.language)}",
         reply_markup=main_keyboard(
             user,
             is_database_admin or is_env_admin,
@@ -98,7 +98,8 @@ async def choose_language(callback: CallbackQuery, state: FSMContext) -> None:
 @router.message(F.contact)
 async def handle_contact(message: Message, storage: Storage, config: Config, state: FSMContext) -> None:
     if not message.from_user or not message.contact or message.contact.user_id != message.from_user.id:
-        await message.answer("📱 Iltimos, o‘zingizning kontaktingizni yuboring.")
+        data = await state.get_data()
+        await message.answer(f"📱 {t('send_own_contact', data.get('language', 'uz'))}")
         return
     data = await state.get_data()
     language = data.get("language", "uz")

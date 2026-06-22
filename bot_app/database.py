@@ -49,8 +49,8 @@ def working_hours() -> list[int]:
 
 
 def schedule_template_for_date(date: str) -> str:
-    day = datetime.fromisoformat(date).day
-    return "odd" if day % 2 else "even"
+    weekday = datetime.fromisoformat(date).weekday()
+    return "odd" if weekday % 2 == 0 else "even"
 
 
 def is_sunday(date: str) -> bool:

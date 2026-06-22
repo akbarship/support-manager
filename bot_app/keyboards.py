@@ -135,13 +135,13 @@ def support_category_keyboard(storage: Storage, selected_ids: list[int]) -> Inli
     return inline(rows)
 
 
-def category_keyboard(storage: Storage) -> InlineKeyboardMarkup:
+def category_keyboard(storage: Storage, language: str = "uz") -> InlineKeyboardMarkup:
     rows = category_button_rows(storage.list_categories(), lambda category: f"cat:{category.id}")
-    rows.append([("🏠 Asosiy menyu", "main:menu")])
+    rows.append([(f"🏠 {t('main_menu_button', language)}", "main:menu")])
     return inline(rows)
 
 
-def support_info(storage: Storage, support: SupportTeacher, category_id: int | None = None) -> str:
+def support_info(storage: Storage, support: SupportTeacher, category_id: int | None = None, language: str = "uz") -> str:
     rating = f"{support.rating}/5 ({support.rating_count})"
     selected_category = storage.get_category(category_id) if category_id else None
     categories = ", ".join(
@@ -161,35 +161,35 @@ def support_info(storage: Storage, support: SupportTeacher, category_id: int | N
     return "\n".join([
         f"🧑‍🏫 {support.name} {support.surname}",
         *[f"{label}: {value}" for label, value in achievements],
-        f"⭐ Reyting: {rating}",
-        f"🧭 Yo‘nalish: {selected_category.name if selected_category else categories or '-'}",
-        f"✅ O‘tilgan darslar: {support.conducted_lessons}",
+        f"⭐ {'Рейтинг' if language == 'ru' else 'Reyting'}: {rating}",
+        f"🧭 {'Направление' if language == 'ru' else 'Yo‘nalish'}: {selected_category.name if selected_category else categories or '-'}",
+        f"✅ {'Проведено уроков' if language == 'ru' else 'O‘tilgan darslar'}: {support.conducted_lessons}",
     ])
 
 
-def support_browser_keyboard(category_id: int, index: int, count: int, support_id: int) -> InlineKeyboardMarkup:
+def support_browser_keyboard(category_id: int, index: int, count: int, support_id: int, language: str = "uz") -> InlineKeyboardMarkup:
     rows: list[list[tuple[str, str]]] = []
     nav = []
     if index > 0:
-        nav.append(("⬅️ Oldingi", f"browse:{category_id}:{index - 1}"))
+        nav.append((f"⬅️ {t('previous', language)}", f"browse:{category_id}:{index - 1}"))
     if index < count - 1:
-        nav.append(("➡️ Keyingi", f"browse:{category_id}:{index + 1}"))
+        nav.append((f"➡️ {t('next', language)}", f"browse:{category_id}:{index + 1}"))
     if nav:
         rows.append(nav)
     rows.extend([
-        [("✅ Tanlash", f"choose_support:{category_id}:{support_id}:{index}")],
-        [("⬅️ Yo‘nalishlarga qaytish", "show_categories")],
+        [(f"✅ {t('select', language)}", f"choose_support:{category_id}:{support_id}:{index}")],
+        [(f"⬅️ {t('back_to_categories', language)}", "show_categories")],
     ])
     return inline(rows)
 
 
-def date_keyboard(today, support_id: int, category_id: int, support_index: int = 0) -> InlineKeyboardMarkup:
+def date_keyboard(today, support_id: int, category_id: int, support_index: int = 0, language: str = "uz") -> InlineKeyboardMarkup:
     rows: list[list[tuple[str, str]]] = []
     offset = 0
     while len(rows) < 3:
         date = today(offset)
         if datetime.fromisoformat(date).weekday() != 6:
-            prefix = "Bugun " if offset == 0 else "Ertaga " if offset == 1 else ""
+            prefix = f"{t('today', language)} " if offset == 0 else f"{t('tomorrow', language)} " if offset == 1 else ""
             rows.append([
                 (
                     f"📅 {prefix}{date}",
@@ -197,7 +197,7 @@ def date_keyboard(today, support_id: int, category_id: int, support_index: int =
                 )
             ])
         offset += 1
-    rows.append([("⬅️ Support Teacherlarga qaytish", f"browse:{category_id}:{support_index}")])
+    rows.append([(f"⬅️ {t('back_to_supports', language)}", f"browse:{category_id}:{support_index}")])
     return inline(rows)
 
 
@@ -210,18 +210,18 @@ def slots_keyboard(storage: Storage, category_id: int, support_id: int, support_
     rows = [[(f"🕘 {hour}:00", f"slot:{category_id}:{support_id}:{support_index}:{date}:{hour}")] for hour in slots]
     if not rows:
         rows = [
-            [("📭 Bo‘sh vaqt yo‘q", "noop")],
-            [("🧑‍🏫 Boshqa Support Teacher tanlash", f"browse:{category_id}:0")],
+            [(f"📭 {t('no_free_time', user.language)}", "noop")],
+            [(f"🧑‍🏫 {t('choose_other_support', user.language)}", f"browse:{category_id}:0")],
         ]
     rows.extend([
-        [("⬅️ Boshqa sana tanlash", f"choose_support:{category_id}:{support_id}:{support_index}")],
+        [(f"⬅️ {t('choose_other_date', user.language)}", f"choose_support:{category_id}:{support_id}:{support_index}")],
     ])
     return inline(rows)
 
 
-def duration_keyboard(category_id: int, support_id: int, support_index: int, date: str, hour: int) -> InlineKeyboardMarkup:
-    rows = [[("✅ Davom etish — 1 soat", f"book:{category_id}:{support_id}:{support_index}:{date}:{hour}:1")]]
-    rows.append([("⬅️ Bo‘sh vaqtlarga qaytish", f"date:{category_id}:{support_id}:{support_index}:{date}")])
+def duration_keyboard(category_id: int, support_id: int, support_index: int, date: str, hour: int, language: str = "uz") -> InlineKeyboardMarkup:
+    rows = [[(f"✅ {t('continue_one_hour', language)}", f"book:{category_id}:{support_id}:{support_index}:{date}:{hour}:1")]]
+    rows.append([(f"⬅️ {t('back_to_slots', language)}", f"date:{category_id}:{support_id}:{support_index}:{date}")])
     return inline(rows)
 
 

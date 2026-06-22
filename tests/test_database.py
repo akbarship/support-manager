@@ -3,7 +3,7 @@ import unittest
 import sqlite3
 from pathlib import Path
 
-from bot_app.database import Storage
+from bot_app.database import Storage, schedule_template_for_date
 
 
 class StorageTest(unittest.TestCase):
@@ -196,15 +196,20 @@ class StorageTest(unittest.TestCase):
         self.assertTrue(self.storage.set_template_slot_open(support.id, "odd", 9, False)["ok"])
         self.assertTrue(self.storage.set_template_slot_open(support.id, "even", 10, False)["ok"])
 
-        self.assertNotIn(9, self.storage.get_open_slots(support.id, "2099-01-03"))
-        self.assertIn(10, self.storage.get_open_slots(support.id, "2099-01-03"))
+        self.assertNotIn(9, self.storage.get_open_slots(support.id, "2099-01-05"))
+        self.assertIn(10, self.storage.get_open_slots(support.id, "2099-01-05"))
         self.assertIn(9, self.storage.get_open_slots(support.id, "2099-01-06"))
         self.assertNotIn(10, self.storage.get_open_slots(support.id, "2099-01-06"))
 
-        odd_blocked = self.storage.create_booking("student", student.phone, support.id, category.id, "2099-01-03", 9, 1)
+        odd_blocked = self.storage.create_booking("student", student.phone, support.id, category.id, "2099-01-05", 9, 1)
         even_allowed = self.storage.create_booking("student", student.phone, support.id, category.id, "2099-01-06", 9, 1)
         self.assertIsNone(odd_blocked)
         self.assertIsNotNone(even_allowed)
+
+    def test_schedule_templates_follow_weekdays_across_sunday(self):
+        self.assertEqual(schedule_template_for_date("2026-06-20"), "even")  # Saturday
+        self.assertEqual(schedule_template_for_date("2026-06-22"), "odd")   # Monday
+        self.assertEqual(schedule_template_for_date("2026-06-23"), "even")  # Tuesday
 
     def test_rejects_sunday_bookings(self):
         category = self.storage.create_category("Speaking Support")

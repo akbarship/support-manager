@@ -73,9 +73,12 @@ async def show_categories(callback: CallbackQuery, storage: Storage) -> None:
     if not user or not callback.message:
         return
     if not storage.list_categories():
-        await callback.message.answer(f"📭 {t('no_support_types')}", reply_markup=back_to_main_keyboard(user))
+        await callback.message.answer(f"📭 {t('no_support_types', user.language)}", reply_markup=back_to_main_keyboard(user))
         return
-    await callback.message.answer(f"🧑‍🏫 {t('support_teachers', user.language)}\n{t('choose_support_type', user.language)}", reply_markup=category_keyboard(storage))
+    await callback.message.answer(
+        f"🧑‍🏫 {t('support_teachers', user.language)}\n{t('choose_support_type', user.language)}",
+        reply_markup=category_keyboard(storage, user.language),
+    )
 
 
 @router.callback_query(F.data.startswith("cat:"))
@@ -98,30 +101,36 @@ async def send_support_browser(callback: CallbackQuery, storage: Storage, catego
     if not callback.message:
         return
     user = await require_user(callback, storage)
+    if not user:
+        return
     supports = storage.list_support_teachers(category_id)
     if not supports:
         await callback.message.answer(
-            f"📭 {t('no_support')}",
-            reply_markup=inline([[("⬅️ Yo‘nalishlarga qaytish", "show_categories")]]),
+            f"📭 {t('no_support', user.language)}",
+            reply_markup=inline([[(f"⬅️ {t('back_to_categories', user.language)}", "show_categories")]]),
         )
         return
     safe_index = max(0, min(index, len(supports) - 1))
     support = supports[safe_index]
     await callback.message.answer(
-        support_info(storage, support, category_id),
-        reply_markup=support_browser_keyboard(category_id, safe_index, len(supports), support.id),
+        support_info(storage, support, category_id, user.language),
+        reply_markup=support_browser_keyboard(category_id, safe_index, len(supports), support.id, user.language),
     )
 
 
 @router.callback_query(F.data.startswith("choose_support:"))
-async def choose_support(callback: CallbackQuery) -> None:
+async def choose_support(callback: CallbackQuery, storage: Storage) -> None:
     await callback.answer()
     await delete_callback_message(callback)
     parts = callback.data.split(":")
     _, category_id, support_id = parts[:3]
     support_index = int(parts[3]) if len(parts) > 3 else 0
-    if callback.message:
-        await callback.message.answer(title("📅 Sana tanlang", "Dars kunini tanlang."), reply_markup=date_keyboard(today, int(support_id), int(category_id), support_index))
+    user = await require_user(callback, storage)
+    if user and callback.message:
+        await callback.message.answer(
+            title(f"📅 {t('choose_date_title', user.language)}", t("choose_date_body", user.language)),
+            reply_markup=date_keyboard(today, int(support_id), int(category_id), support_index, user.language),
+        )
 
 
 @router.callback_query(F.data.startswith("date:"))
@@ -139,7 +148,7 @@ async def choose_date(callback: CallbackQuery, storage: Storage, state: FSMConte
     if not user or not callback.message:
         return
     await callback.message.answer(
-        title("🕘 Bo‘sh vaqt", "Quyidan vaqtni tanlang."),
+        title(f"🕘 {t('free_time_title', user.language)}", t("free_time_body", user.language)),
         reply_markup=slots_keyboard(storage, int(category_id), int(support_id), int(support_index), date, user, hours_until, start_at),
     )
 
@@ -158,8 +167,8 @@ async def choose_slot(callback: CallbackQuery, storage: Storage) -> None:
     if not user or not callback.message:
         return
     await callback.message.answer(
-        title("⏱ Davomiylik", "Dars davomiyligi 1 soat."),
-        reply_markup=duration_keyboard(int(category_id), int(support_id), int(support_index), date, int(hour)),
+        title(f"⏱ {t('duration_title', user.language)}", t("duration_body", user.language)),
+        reply_markup=duration_keyboard(int(category_id), int(support_id), int(support_index), date, int(hour), user.language),
     )
 
 
@@ -177,7 +186,10 @@ async def book(callback: CallbackQuery, storage: Storage, state: FSMContext) -> 
     if not user or not callback.message:
         return
     if user.banned_until and datetime.fromisoformat(user.banned_until) > local_now():
-        await callback.message.answer(f"🚫 Siz vaqtincha band qila olmaysiz.\nBan tugaydi: {user.banned_until[:10]}", reply_markup=back_to_main_keyboard(user))
+        await callback.message.answer(
+            f"🚫 {t('temporarily_banned', user.language)}\n{t('ban_ends', user.language)}: {user.banned_until[:10]}",
+            reply_markup=back_to_main_keyboard(user),
+        )
         return
     await state.set_state(LessonBooking.topic)
     await state.update_data(
@@ -189,10 +201,10 @@ async def book(callback: CallbackQuery, storage: Storage, state: FSMContext) -> 
         duration=int(duration),
     )
     await callback.message.answer(
-        title("📝 Dars mavzusi", "Support Teacherdan nimani o‘rganmoqchi ekaningizni yozing."),
+        title(f"📝 {t('topic_title', user.language)}", t("topic_body", user.language)),
         reply_markup=inline([
-            [("⬅️ Bo‘sh vaqtlarga qaytish", f"date:{category_id}:{support_id}:{support_index}:{date}")],
-            [("❌ Bekor qilish", "main:menu")],
+            [(f"⬅️ {t('back_to_slots', user.language)}", f"date:{category_id}:{support_id}:{support_index}:{date}")],
+            [(f"❌ {t('cancel', user.language)}", "main:menu")],
         ]),
     )
 
@@ -200,11 +212,13 @@ async def book(callback: CallbackQuery, storage: Storage, state: FSMContext) -> 
 @router.message(LessonBooking.topic)
 async def save_booking_topic(message: Message, storage: Storage, state: FSMContext) -> None:
     topic = (message.text or "").strip()
+    user = storage.get_user_by_telegram_id(message.from_user.id) if message.from_user else None
+    language = user.language if user else "uz"
     if len(topic) < 3:
-        await message.answer("⚠️ Dars mavzusini kamida 3 ta belgi bilan yozing.")
+        await message.answer(f"⚠️ {t('topic_too_short', language)}")
         return
     if len(topic) > 500:
-        await message.answer("⚠️ Dars mavzusi 500 ta belgidan oshmasligi kerak.")
+        await message.answer(f"⚠️ {t('topic_too_long', language)}")
         return
     if not message.from_user:
         return
@@ -216,7 +230,7 @@ async def save_booking_topic(message: Message, storage: Storage, state: FSMConte
     if user.banned_until and datetime.fromisoformat(user.banned_until) > local_now():
         await state.clear()
         await message.answer(
-            f"🚫 Siz vaqtincha band qila olmaysiz.\nBan tugaydi: {user.banned_until[:10]}",
+            f"🚫 {t('temporarily_banned', user.language)}\n{t('ban_ends', user.language)}: {user.banned_until[:10]}",
             reply_markup=back_to_main_keyboard(user),
         )
         return
@@ -240,8 +254,8 @@ async def save_booking_topic(message: Message, storage: Storage, state: FSMConte
     if not booking:
         await state.clear()
         await message.answer(
-            "⚠️ Bu vaqt band yoki mavjud emas.",
-            reply_markup=inline([[("⬅️ Bo‘sh vaqtlarga qaytish", f"date:{category_id}:{support_id}:{support_index}:{date}")]]),
+            f"⚠️ {t('slot_unavailable', user.language)}",
+            reply_markup=inline([[(f"⬅️ {t('back_to_slots', user.language)}", f"date:{category_id}:{support_id}:{support_index}:{date}")]]),
         )
         return
     await state.clear()
@@ -252,10 +266,10 @@ async def save_booking_topic(message: Message, storage: Storage, state: FSMConte
             f"✅ {t('booked', user.language)}",
             f"📅 {date}",
             f"🕘 {hour}:00",
-            f"⏱ {duration} soat",
-            f"📝 Mavzu: {topic}",
+            f"⏱ {duration} {t('hours', user.language)}",
+            f"📝 {t('topic', user.language)}: {topic}",
             f"🧑‍🏫 Support Teacher: {support.name} {support.surname}" if support else "",
-            f"📱 Telefon: {support.phone}" if support else "",
+            f"📱 {t('phone', user.language)}: {support.phone}" if support else "",
             username_line(support_user),
         ])),
         reply_markup=back_to_main_keyboard(user),
@@ -286,7 +300,7 @@ async def learner_bookings(callback: CallbackQuery, storage: Storage) -> None:
         return
     bookings = storage.list_bookings(user_phone=user.phone, status="booked")
     if not bookings:
-        await callback.message.answer("📭 Aktiv darslaringiz yo‘q.", reply_markup=back_to_main_keyboard(user))
+        await callback.message.answer(f"📭 {t('no_active_lessons', user.language)}", reply_markup=back_to_main_keyboard(user))
         return
     visible = bookings[:10]
     for index, booking in enumerate(visible):
@@ -294,17 +308,17 @@ async def learner_bookings(callback: CallbackQuery, storage: Storage) -> None:
         is_last = index == len(visible) - 1
         await callback.message.answer(
             "\n".join(filter(None, [
-                "📚 Dars",
+                f"📚 {t('lesson', user.language)}",
                 f"📅 {booking.date}",
-                f"🕘 {booking.start_hour}:00 ({booking.duration} soat)",
-                f"📝 Mavzu: {booking.topic}" if booking.topic else "",
+                f"🕘 {booking.start_hour}:00 ({booking.duration} {t('hours', user.language)})",
+                f"📝 {t('topic', user.language)}: {booking.topic}" if booking.topic else "",
                 f"🧑‍🏫 Support Teacher: {support.name if support else ''} {support.surname if support else ''}",
-                f"📱 Telefon: {support.phone if support else ''}",
+                f"📱 {t('phone', user.language)}: {support.phone if support else ''}",
                 username_line(storage.get_user_by_phone(support.phone) if support else None),
             ])),
             reply_markup=inline([
-                [("🚫 Darsni bekor qilish", f"learner_cancel:{booking.id}")],
-                *([[("🏠 Asosiy menyu", "main:menu_keep")]] if is_last else []),
+                [(f"🚫 {t('cancel_lesson', user.language)}", f"learner_cancel:{booking.id}")],
+                *([[(f"🏠 {t('main_menu_button', user.language)}", "main:menu_keep")]] if is_last else []),
             ]),
         )
 
@@ -320,22 +334,22 @@ async def learner_cancel(callback: CallbackQuery, storage: Storage) -> None:
     booking = storage.get_booking(booking_id)
     if not booking or booking.user_phone != user.phone or booking.status != "booked":
         await callback.message.answer(
-            "⚠️ Bu dars topilmadi yoki allaqachon bekor qilingan.",
-            reply_markup=inline([[("⬅️ Darslarimga qaytish", "learner:bookings")]]),
+            f"⚠️ {t('lesson_not_found', user.language)}",
+            reply_markup=inline([[(f"⬅️ {t('back_to_lessons', user.language)}", "learner:bookings")]]),
         )
         return
     if hours_until(booking.date, booking.start_hour) < 2:
         await callback.message.answer(
-            "⏳ Darsni kamida 2 soat oldin bekor qilish mumkin.",
-            reply_markup=inline([[("⬅️ Darslarimga qaytish", "learner:bookings")]]),
+            f"⏳ {t('cancel_two_hours', user.language)}",
+            reply_markup=inline([[(f"⬅️ {t('back_to_lessons', user.language)}", "learner:bookings")]]),
         )
         return
     storage.cancel_booking(booking.id, "learner_cancelled")
     support = storage.get_support_teacher(booking.support_teacher_id)
     support_user = storage.get_user_by_phone(support.phone) if support else None
     await callback.message.answer(
-        "✅ Dars bekor qilindi.",
-        reply_markup=inline([[("⬅️ Darslarimga qaytish", "learner:bookings")]]),
+        f"✅ {t('lesson_cancelled', user.language)}",
+        reply_markup=inline([[(f"⬅️ {t('back_to_lessons', user.language)}", "learner:bookings")]]),
     )
     if support_user and support_user.chat_id:
         await callback.bot.send_message(
@@ -363,7 +377,7 @@ async def rate(callback: CallbackQuery, storage: Storage, config: Config) -> Non
         return
     feedback = storage.add_feedback(int(booking_id), int(rating))
     if not feedback:
-        await callback.message.answer("⚠️ Bu dars uchun feedback allaqachon yuborilgan.", reply_markup=back_to_main_keyboard(user))
+        await callback.message.answer(f"⚠️ {t('feedback_already_sent', user.language)}", reply_markup=back_to_main_keyboard(user))
         return
     booking = storage.get_booking(int(booking_id))
     support = storage.get_support_teacher(booking.support_teacher_id) if booking else None
@@ -403,7 +417,7 @@ async def rate(callback: CallbackQuery, storage: Storage, config: Config) -> Non
             )
         except Exception:
             pass
-    await callback.message.answer("🙏 Feedback uchun rahmat.", reply_markup=back_to_main_keyboard(user))
+    await callback.message.answer(f"🙏 {t('feedback_thanks', user.language)}", reply_markup=back_to_main_keyboard(user))
 
 
 def rating_markup_for_reminder(booking_id: int):

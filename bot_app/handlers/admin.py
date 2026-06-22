@@ -841,7 +841,12 @@ async def ban_student_finish(callback: CallbackQuery, config: Config, storage: S
         return
     if user.chat_id:
         try:
-            await callback.bot.send_message(user.chat_id, f"🚫 Siz {days} kunga ban qilindingiz.\nBan tugaydi: {user.banned_until[:10]}")
+            text = (
+                f"🚫 Вы заблокированы на {days} дней.\nБлокировка закончится: {user.banned_until[:10]}"
+                if user.language == "ru"
+                else f"🚫 Siz {days} kunga ban qilindingiz.\nBan tugaydi: {user.banned_until[:10]}"
+            )
+            await callback.bot.send_message(user.chat_id, text)
         except Exception:
             pass
     await callback.message.answer(f"✅ O‘quvchi {days} kunga ban qilindi.", reply_markup=inline([[("⬅️ Profilga qaytish", f"student_admin:open:{user.phone}")]]))
@@ -860,7 +865,10 @@ async def unban_student(callback: CallbackQuery, config: Config, storage: Storag
         return
     if user.chat_id:
         try:
-            await callback.bot.send_message(user.chat_id, "✅ Siz bandan chiqarildingiz.")
+            await callback.bot.send_message(
+                user.chat_id,
+                "✅ Вы разблокированы." if user.language == "ru" else "✅ Siz bandan chiqarildingiz.",
+            )
         except Exception:
             pass
     await callback.message.answer("✅ O‘quvchi bandan chiqarildi.", reply_markup=inline([[("⬅️ Profilga qaytish", f"student_admin:open:{user.phone}")]]))

@@ -15,6 +15,7 @@ from bot_app.keyboards import (
     schedule_template_edit_keyboard,
     schedule_template_keyboard,
 )
+from bot_app.texts import t
 
 router = Router()
 
@@ -111,13 +112,13 @@ async def notify_reassigned_booking(callback: CallbackQuery, storage: Storage, o
             await callback.bot.send_message(
                 learner.chat_id,
                 "\n".join(filter(None, [
-                    f"🔄 Darsingiz boshqa Support Teacherga o‘tkazildi",
-                    "📚 Yangi dars",
+                    f"🔄 {t('lesson_reassigned', learner.language)}",
+                    f"📚 {t('new_lesson', learner.language)}",
                     f"📅 {old_booking.date}",
-                    f"🕘 {old_booking.start_hour}:00 ({old_booking.duration} soat)",
-                    f"📝 Mavzu: {old_booking.topic}" if old_booking.topic else "",
+                    f"🕘 {old_booking.start_hour}:00 ({old_booking.duration} {t('hours', learner.language)})",
+                    f"📝 {t('topic', learner.language)}: {old_booking.topic}" if old_booking.topic else "",
                     f"🧑‍🏫 {replacement.name} {replacement.surname}",
-                    f"📱 Telefon: {replacement.phone}",
+                    f"📱 {t('phone', learner.language)}: {replacement.phone}",
                     username_line(replacement_user),
                 ])),
             )
@@ -138,7 +139,7 @@ async def notify_reassigned_booking(callback: CallbackQuery, storage: Storage, o
     if learner and learner.chat_id:
         await callback.bot.send_message(
             learner.chat_id,
-            "🚫 Dars bekor qilindi.\nHozircha o‘rniga bo‘sh Support Teacher topilmadi.",
+            f"🚫 {t('lesson_cancelled', learner.language)}\n{t('replacement_not_found', learner.language)}",
         )
 
 
@@ -335,9 +336,18 @@ async def no_show(callback: CallbackQuery, storage: Storage, config: Config) -> 
     count = result["count"]
     banned_until = result["banned_until"]
     learner_text = (
-        f"🚫 Siz darsga 3 marta kelmadingiz.\n2 haftaga ban berildi.\nBan tugaydi: {banned_until[:10]}"
+        (
+            f"🚫 Вы пропустили урок 3 раза.\nВы заблокированы на 2 недели.\n"
+            f"{t('ban_ends', user.language)}: {banned_until[:10]}"
+            if user.language == "ru"
+            else f"🚫 Siz darsga 3 marta kelmadingiz.\n2 haftaga ban berildi.\nBan tugaydi: {banned_until[:10]}"
+        )
         if banned_until
-        else f"⚠️ Ogohlantirish {count}/3.\nDarsga kelmaslik 3 martaga yetsa 2 haftalik ban beriladi."
+        else (
+            f"⚠️ Предупреждение {count}/3.\nПосле 3 пропусков вы будете заблокированы на 2 недели."
+            if user.language == "ru"
+            else f"⚠️ Ogohlantirish {count}/3.\nDarsga kelmaslik 3 martaga yetsa 2 haftalik ban beriladi."
+        )
     )
     if user.chat_id:
         await callback.bot.send_message(user.chat_id, learner_text)
@@ -376,5 +386,9 @@ async def complete(callback: CallbackQuery, storage: Storage) -> None:
     storage.complete_booking(booking.id)
     learner = storage.get_user_by_phone(booking.user_phone)
     if learner and learner.chat_id:
-        await callback.bot.send_message(learner.chat_id, "⭐ Dars uchun baho bering.", reply_markup=rating_keyboard(booking.id))
+        await callback.bot.send_message(
+            learner.chat_id,
+            f"⭐ {t('rating_request', learner.language)}",
+            reply_markup=rating_keyboard(booking.id),
+        )
     await callback.message.answer("✅ Dars yakunlandi.", reply_markup=back_to_support_bookings_keyboard())

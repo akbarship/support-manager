@@ -9,6 +9,7 @@ from aiogram import Bot
 from aiogram.types import FSInputFile
 
 from bot_app.database import Storage, local_now
+from bot_app.texts import t
 
 
 def start_at(date: str, hour: int) -> datetime:
@@ -34,13 +35,13 @@ async def process_reminders(bot: Bot, storage: Storage) -> None:
         if minutes <= 20 and minutes > 5 and not booking.reminded20:
             for user in (learner, support_user):
                 if user and user.chat_id:
-                    await bot.send_message(user.chat_id, "⏰ Dars 20 daqiqadan keyin boshlanadi.")
+                    await bot.send_message(user.chat_id, f"⏰ {t('reminder_20', user.language)}")
             storage.mark_booking(booking.id, reminded20=True)
 
         if minutes <= 5 and minutes > 0 and not booking.reminded5:
             for user in (learner, support_user):
                 if user and user.chat_id:
-                    await bot.send_message(user.chat_id, "🔔 Dars 5 daqiqadan keyin boshlanadi.")
+                    await bot.send_message(user.chat_id, f"🔔 {t('reminder_5', user.language)}")
             storage.mark_booking(booking.id, reminded5=True)
 
 
